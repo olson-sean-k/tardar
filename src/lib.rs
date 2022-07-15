@@ -8,7 +8,8 @@
 //!
 //! [`miette`]: https://crates.io/crates/miette
 
-use miette::Diagnostic;
+use miette::{Diagnostic, LabeledSpan, SourceSpan};
+use std::cmp;
 use vec1::{vec1, Vec1};
 
 pub mod integration {
@@ -185,5 +186,202 @@ impl<'d, T> DiagnosticResultExt<'d, T> for DiagnosticResult<'d, T> {
             },
             Err(diagnostics) => Err(diagnostics),
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum EndIndex {
+    Closed(usize),
+    Intersticial(usize),
+}
+
+impl EndIndex {
+    pub fn inclusive(self) -> Option<usize> {
+        match self {
+            EndIndex::Closed(index) => Some(index - 1),
+            EndIndex::Intersticial(_) => None,
+        }
+    }
+
+    pub fn exclusive(self) -> usize {
+        match self {
+            EndIndex::Closed(index) | EndIndex::Intersticial(index) => index,
+        }
+    }
+}
+
+// TODO: Figure this out. How should zero-width spans be handled?
+pub trait Span: Clone + Sized {
+    fn from_point_vector(start: usize, len: usize) -> Self;
+
+    fn from_points(start: usize, end: usize) -> Option<Self> {
+        (end >= start).then(|| Self::from_point_vector(start, end - start + 1))
+    }
+
+    fn converged(offset: usize) -> Self {
+        Self::from_point_vector(offset, 1)
+    }
+
+    fn start(&self) -> usize;
+
+    fn end(&self) -> EndIndex {
+        let index = self.start() + self.len();
+        if self.is_intersticial() {
+            EndIndex::Intersticial(index)
+        }
+        else {
+            EndIndex::Closed(index)
+        }
+    }
+
+    fn center(&self) -> usize {
+        self.start() + (self.len() / 2)
+    }
+
+    fn len(&self) -> usize;
+
+    fn contains(&self, other: &Self) -> bool {
+        self.start() <= other.start() && self.end().exclusive() >= other.end().exclusive()
+    }
+
+    fn is_intersticial(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn adjacency(&self, other: &Self) -> Option<Self> {
+        let start = cmp::max(self.start(), other.start());
+        let end = cmp::min(self.end(), other.end());
+        if end < start && end == start - 1 {
+            Some(Self::from_point_vector(start, 0))
+        }
+        else {
+            Self::from_points(start, end)
+        }
+    }
+
+    fn intersection(&self, other: &Self) -> Option<Self> {
+        Self::from_points(
+            cmp::max(self.start(), other.start()),
+            cmp::min(self.end(), other.end()),
+        )
+    }
+
+    fn union(&self, other: &Self) -> Self {
+        Self::from_points(
+            cmp::min(self.start(), other.start()),
+            cmp::max(self.end(), other.end()),
+        )
+        .expect("span ")
+    }
+
+    fn difference(&self, other: &Self) -> Vec<Self> {
+        let mut spans = Vec::with_capacity(2);
+        let min = cmp::min(other.start(), other.end());
+        if min > self.start() && min < self.end() {
+            spans.push((self.start(), min - self.start()).into());
+        }
+        let max = cmp::max(other.start(), other.end());
+        if max < self.end() && max > self.start() {
+            spans.push((max + 1, self.end() - max).into());
+        }
+        spans
+    }
+}
+
+pub trait SourceSpanExt {
+    fn union(&self, other: &SourceSpan) -> SourceSpan;
+}
+
+impl SourceSpanExt for SourceSpan {
+    fn union(&self, other: &SourceSpan) -> SourceSpan {
+        let start = cmp::min(self.offset(), other.offset());
+        let end = cmp::max(self.offset() + self.len(), other.offset() + other.len());
+        (start, end - start).into()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CompositeSourceSpan {
+    label: Option<&'static str>,
+    kind: CompositeKind,
+}
+
+impl CompositeSourceSpan {
+    pub fn span(label: Option<&'static str>, span: SourceSpan) -> Self {
+        CompositeSourceSpan {
+            label,
+            kind: CompositeKind::Span(span),
+        }
+    }
+
+    pub fn correlated(
+        label: Option<&'static str>,
+        span: SourceSpan,
+        correlated: CorrelatedSourceSpan,
+    ) -> Self {
+        CompositeSourceSpan {
+            label,
+            kind: CompositeKind::Correlated { span, correlated },
+        }
+    }
+
+    pub fn labels(&self) -> Vec<LabeledSpan> {
+        let label = self.label.map(str::to_string);
+        match self.kind {
+            CompositeKind::Span(ref span) => vec![LabeledSpan::new_with_span(label, *span)],
+            CompositeKind::Correlated {
+                ref span,
+                ref correlated,
+            } => {
+                let mut labels = vec![LabeledSpan::new_with_span(label, *span)];
+                labels.extend(correlated.labels());
+                labels
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum CompositeKind {
+    Span(SourceSpan),
+    Correlated {
+        span: SourceSpan,
+        correlated: CorrelatedSourceSpan,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub enum CorrelatedSourceSpan {
+    Contiguous(SourceSpan),
+    Split(SourceSpan, SourceSpan),
+}
+
+impl CorrelatedSourceSpan {
+    pub fn split_some(left: Option<SourceSpan>, right: SourceSpan) -> Self {
+        if let Some(left) = left {
+            CorrelatedSourceSpan::Split(left, right)
+        }
+        else {
+            CorrelatedSourceSpan::Contiguous(right)
+        }
+    }
+
+    pub fn labels(&self) -> Vec<LabeledSpan> {
+        let label = Some("here".to_string());
+        match self {
+            CorrelatedSourceSpan::Contiguous(ref span) => {
+                vec![LabeledSpan::new_with_span(label, *span)]
+            }
+            CorrelatedSourceSpan::Split(ref left, ref right) => vec![
+                LabeledSpan::new_with_span(label.clone(), *left),
+                LabeledSpan::new_with_span(label, *right),
+            ],
+        }
+    }
+}
+
+impl From<SourceSpan> for CorrelatedSourceSpan {
+    fn from(span: SourceSpan) -> Self {
+        CorrelatedSourceSpan::Contiguous(span)
     }
 }

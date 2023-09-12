@@ -1,7 +1,7 @@
 [package]
 name = "tardar"
 version = "0.0.0"
-rust-version = "1.56.0"
+rust-version = "1.57.0"
 edition = "2021"
 authors = ["Sean Olson <olson.sean.k@gmail.com>"]
 description = "Extensions for diagnostic error handling with `miette`."
@@ -17,5 +17,5 @@ version = "^5.1.0"
 default-features = false
 
 [dependencies.vec1]
-version = "^1.8.0"
+version = "^1.10.0"
 default-features = false

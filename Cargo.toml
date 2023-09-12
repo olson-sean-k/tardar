@@ -13,7 +13,7 @@ keywords = ["diagnostics"]
 [dependencies]
 
 [dependencies.miette]
-version = "^5.1.0"
+version = "^5.10.0"
 default-features = false
 
 [dependencies.vec1]

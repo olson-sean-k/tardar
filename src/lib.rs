@@ -9,7 +9,7 @@
 //! [`miette`]: https://crates.io/crates/miette
 
 use miette::Diagnostic;
-use vec1::{vec1, Vec1};
+use mitsein::vec1::{vec1, Vec1};
 
 pub mod integration {
     pub mod miette {

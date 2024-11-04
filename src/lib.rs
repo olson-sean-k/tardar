@@ -9,7 +9,11 @@
 //! [`miette`]: https://crates.io/crates/miette
 
 use miette::Diagnostic;
-use mitsein::vec1::{vec1, Vec1};
+use mitsein::iter1::{Extend1, IntoIterator1, Iterator1};
+use mitsein::slice1::Slice1;
+use mitsein::vec1::Vec1;
+use std::error;
+use std::fmt::{self, Debug, Display, Formatter};
 
 pub mod integration {
     pub mod miette {
@@ -21,20 +25,6 @@ pub mod integration {
 pub mod prelude {
     pub use crate::{DiagnosticResultExt as _, IteratorExt as _, ResultExt as _};
 }
-
-pub type BoxedDiagnostic<'d> = Box<dyn Diagnostic + 'd>;
-
-/// `Result` that includes [`Diagnostic`]s on both success and failure.
-///
-/// On success, the `Ok` variant contains zero or more diagnostics and a non-diagnostic output `T`.
-/// On failure, the `Err` variant contains one or more diagnostics, where at least one of the
-/// diagnostics is an error.
-///
-/// See [`DiagnosticResultExt`].
-///
-/// [`Diagnostic`]: miette::Diagnostic
-/// [`DiagnosticResultExt`]: crate::DiagnosticResultExt
-pub type DiagnosticResult<'d, T> = Result<(T, Vec<BoxedDiagnostic<'d>>), Vec1<BoxedDiagnostic<'d>>>;
 
 /// Extension methods for [`Iterator`]s.
 ///
@@ -62,7 +52,7 @@ where
     where
         Self: Iterator<Item = BoxedDiagnostic<'d>>,
     {
-        Ok(((), self.collect()))
+        Ok(Diagnosed((), self.collect()))
     }
 }
 
@@ -89,11 +79,40 @@ impl<T, E> ResultExt<T, E> for Result<T, E> {
         E: 'd + Diagnostic,
     {
         match self {
-            Ok(output) => Ok((output, vec![])),
-            Err(error) => Err(vec1![Box::new(error) as Box<dyn Diagnostic + 'd>]),
+            Ok(output) => Ok(Diagnosed(output, vec![])),
+            Err(error) => Err(Error([Box::from_diagnostic(error)].into())),
         }
     }
 }
+
+pub type BoxedDiagnostic<'d> = Box<dyn Diagnostic + 'd>;
+
+pub trait BoxedDiagnosticExt<'d> {
+    fn from_diagnostic<D>(diagnostic: D) -> Self
+    where
+        D: Diagnostic + 'd;
+}
+
+impl<'d> BoxedDiagnosticExt<'d> for BoxedDiagnostic<'d> {
+    fn from_diagnostic<D>(diagnostic: D) -> Self
+    where
+        D: Diagnostic + 'd,
+    {
+        Box::new(diagnostic) as Box<dyn Diagnostic + 'd>
+    }
+}
+
+/// `Result` that includes [`Diagnostic`]s on both success and failure.
+///
+/// On success, the `Ok` variant contains zero or more diagnostics and a non-diagnostic output `T`.
+/// On failure, the `Err` variant contains one or more diagnostics, where at least one of the
+/// diagnostics is an error.
+///
+/// See [`DiagnosticResultExt`].
+///
+/// [`Diagnostic`]: miette::Diagnostic
+/// [`DiagnosticResultExt`]: crate::DiagnosticResultExt
+pub type DiagnosticResult<'d, T> = Result<Diagnosed<'d, T>, Error<'d>>;
 
 /// Extension methods for [`DiagnosticResult`]s.
 ///
@@ -139,20 +158,22 @@ pub trait DiagnosticResultExt<'d, T> {
     fn and_then_diagnose<U, F>(self, f: F) -> DiagnosticResult<'d, U>
     where
         F: FnOnce(T) -> DiagnosticResult<'d, U>;
+
+    fn has_diagnostics(&self) -> bool;
 }
 
 impl<'d, T> DiagnosticResultExt<'d, T> for DiagnosticResult<'d, T> {
     fn ok_output(self) -> Option<T> {
         match self {
-            Ok((output, _)) => Some(output),
+            Ok(Diagnosed(output, _)) => Some(output),
             _ => None,
         }
     }
 
     fn diagnostics(&self) -> &[BoxedDiagnostic<'d>] {
         match self {
-            Ok((_, ref diagnostics)) => diagnostics,
-            Err(ref diagnostics) => diagnostics,
+            Ok(ref diagnosed) => diagnosed.diagnostics(),
+            Err(ref error) => error.diagnostics(),
         }
     }
 
@@ -161,8 +182,8 @@ impl<'d, T> DiagnosticResultExt<'d, T> for DiagnosticResult<'d, T> {
         F: FnOnce(T) -> U,
     {
         match self {
-            Ok((output, diagnostics)) => Ok((f(output), diagnostics)),
-            Err(diagnostics) => Err(diagnostics),
+            Ok(diagnosed) => Ok(diagnosed.map_output(f)),
+            Err(error) => Err(error),
         }
     }
 
@@ -171,19 +192,94 @@ impl<'d, T> DiagnosticResultExt<'d, T> for DiagnosticResult<'d, T> {
         F: FnOnce(T) -> DiagnosticResult<'d, U>,
     {
         match self {
-            Ok((output, mut diagnostics)) => match f(output) {
-                Ok((output, tail)) => {
+            Ok(Diagnosed(output, mut diagnostics)) => match f(output) {
+                Ok(Diagnosed(output, tail)) => {
                     diagnostics.extend(tail);
-                    Ok((output, diagnostics))
+                    Ok(Diagnosed(output, diagnostics))
                 }
-                Err(tail) => {
-                    diagnostics.extend(tail);
-                    Err(diagnostics
-                        .try_into()
-                        .expect("diagnostic failure with no errors"))
-                }
+                Err(tail) => Err(Error(diagnostics.extend_non_empty(tail))),
             },
             Err(diagnostics) => Err(diagnostics),
         }
+    }
+
+    fn has_diagnostics(&self) -> bool {
+        match self {
+            Ok(ref diagnosed) => diagnosed.has_diagnostics(),
+            Err(_) => true,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Diagnosed<'d, T>(pub T, pub Vec<BoxedDiagnostic<'d>>);
+
+impl<'d, T> Diagnosed<'d, T> {
+    pub fn into_output(self) -> T {
+        self.0
+    }
+
+    pub fn into_diagnostics(self) -> Vec<BoxedDiagnostic<'d>> {
+        self.1
+    }
+
+    pub fn map_output<U, F>(self, f: F) -> Diagnosed<'d, U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        let Diagnosed(output, diagnostics) = self;
+        Diagnosed(f(output), diagnostics)
+    }
+
+    pub fn output(&self) -> &T {
+        &self.0
+    }
+
+    pub fn diagnostics(&self) -> &[BoxedDiagnostic<'d>] {
+        self.1.as_slice()
+    }
+
+    pub fn has_diagnostics(&self) -> bool {
+        !self.1.is_empty()
+    }
+}
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct Error<'d>(pub Vec1<BoxedDiagnostic<'d>>);
+
+impl<'d> Error<'d> {
+    pub fn into_diagnostics(self) -> Vec1<BoxedDiagnostic<'d>> {
+        self.0
+    }
+
+    pub fn diagnostics(&self) -> &Slice1<BoxedDiagnostic<'d>> {
+        self.0.as_slice1()
+    }
+}
+
+impl<'d> Display for Error<'d> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        for diagnostic in self.diagnostics().iter1() {
+            writeln!(formatter, "{}", diagnostic)?;
+        }
+        Ok(())
+    }
+}
+
+impl<'d> error::Error for Error<'d> {}
+
+impl<'d> IntoIterator for Error<'d> {
+    type IntoIter = <Vec1<BoxedDiagnostic<'d>> as IntoIterator>::IntoIter;
+    type Item = BoxedDiagnostic<'d>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'d> IntoIterator1 for Error<'d> {
+    fn into_iter1(self) -> Iterator1<Self::IntoIter> {
+        self.0.into_iter1()
     }
 }

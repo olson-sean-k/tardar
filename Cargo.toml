@@ -17,6 +17,6 @@ version = "^7.2.0"
 default-features = false
 
 [dependencies.mitsein]
-version = "^0.4.0"
+version = "^0.4.1"
 default-features = false
 features = ["std"]

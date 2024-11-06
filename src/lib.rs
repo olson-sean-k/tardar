@@ -8,12 +8,13 @@
 //!
 //! [`miette`]: https://crates.io/crates/miette
 
-use miette::Diagnostic;
-use mitsein::iter1::{Extend1, IntoIterator1, Iterator1};
+use miette::{Diagnostic, LabeledSpan, Severity, SourceCode};
+use mitsein::iter1::{Extend1, IntoIterator1, Iterator1, IteratorExt as _};
 use mitsein::slice1::Slice1;
 use mitsein::vec1::Vec1;
 use std::error;
 use std::fmt::{self, Debug, Display, Formatter};
+use std::ops::Deref;
 
 pub mod integration {
     pub mod miette {
@@ -231,6 +232,14 @@ impl<'d, T> Diagnosed<'d, T> {
         Diagnosed(f(output), diagnostics)
     }
 
+    pub fn collate(self) -> (T, Option<Collation<Vec1<BoxedDiagnostic<'d>>>>) {
+        let Diagnosed(output, diagnostics) = self;
+        (
+            output,
+            Vec1::try_from(diagnostics).ok().map(Collation::from),
+        )
+    }
+
     pub fn output(&self) -> &T {
         &self.0
     }
@@ -251,6 +260,10 @@ pub struct Error<'d>(pub Vec1<BoxedDiagnostic<'d>>);
 impl<'d> Error<'d> {
     pub fn into_diagnostics(self) -> Vec1<BoxedDiagnostic<'d>> {
         self.0
+    }
+
+    pub fn collate(self) -> Collation<Vec1<BoxedDiagnostic<'d>>> {
+        self.0.into()
     }
 
     pub fn diagnostics(&self) -> &Slice1<BoxedDiagnostic<'d>> {
@@ -282,4 +295,137 @@ impl<'d> IntoIterator1 for Error<'d> {
     fn into_iter1(self) -> Iterator1<Self::IntoIter> {
         self.0.into_iter1()
     }
+}
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct Collation<D>(D);
+
+impl<'b, 'd> Diagnostic for Collation<&'b Slice1<BoxedDiagnostic<'d>>> {
+    fn code<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.0.first().code()
+    }
+
+    fn severity(&self) -> Option<Severity> {
+        self.0.first().severity()
+    }
+
+    fn help<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.0.first().help()
+    }
+
+    fn url<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.0.first().url()
+    }
+
+    fn source_code(&self) -> Option<&dyn SourceCode> {
+        self.0.first().source_code()
+    }
+
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        self.0.first().labels()
+    }
+
+    fn related<'a>(&'a self) -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>> {
+        self::tail(self.0.iter())
+    }
+
+    fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
+        self.0.first().diagnostic_source()
+    }
+}
+
+impl<'d> Diagnostic for Collation<Vec1<BoxedDiagnostic<'d>>> {
+    fn code<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.0.first().code()
+    }
+
+    fn severity(&self) -> Option<Severity> {
+        self.0.first().severity()
+    }
+
+    fn help<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.0.first().help()
+    }
+
+    fn url<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.0.first().url()
+    }
+
+    fn source_code(&self) -> Option<&dyn SourceCode> {
+        self.0.first().source_code()
+    }
+
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        self.0.first().labels()
+    }
+
+    fn related<'a>(&'a self) -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>> {
+        self::tail(self.0.iter())
+    }
+
+    fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
+        self.0.first().diagnostic_source()
+    }
+}
+
+impl<'d, D> Display for Collation<D>
+where
+    D: Deref<Target = Slice1<BoxedDiagnostic<'d>>>,
+{
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        for diagnostic in self.0.iter1() {
+            writeln!(formatter, "{}", diagnostic)?;
+        }
+        Ok(())
+    }
+}
+
+impl<'d, D> error::Error for Collation<D> where
+    D: Deref<Target = Slice1<BoxedDiagnostic<'d>>> + Debug
+{
+}
+
+impl<'b, 'd> From<&'b Slice1<BoxedDiagnostic<'d>>> for Collation<&'b Slice1<BoxedDiagnostic<'d>>> {
+    fn from(diagnostics: &'b Slice1<BoxedDiagnostic<'d>>) -> Self {
+        Collation(diagnostics)
+    }
+}
+
+impl<'d> From<Vec1<BoxedDiagnostic<'d>>> for Collation<Vec1<BoxedDiagnostic<'d>>> {
+    fn from(diagnostics: Vec1<BoxedDiagnostic<'d>>) -> Self {
+        Collation(diagnostics)
+    }
+}
+
+impl<'b, 'd> TryFrom<&'b [BoxedDiagnostic<'d>]> for Collation<&'b Slice1<BoxedDiagnostic<'d>>> {
+    type Error = &'b [BoxedDiagnostic<'d>];
+
+    fn try_from(diagnostics: &'b [BoxedDiagnostic<'d>]) -> Result<Self, Self::Error> {
+        Slice1::try_from_slice(diagnostics).map(Collation)
+    }
+}
+
+impl<'d> TryFrom<Vec<BoxedDiagnostic<'d>>> for Collation<Vec1<BoxedDiagnostic<'d>>> {
+    type Error = Vec<BoxedDiagnostic<'d>>;
+
+    fn try_from(diagnostics: Vec<BoxedDiagnostic<'d>>) -> Result<Self, Self::Error> {
+        Vec1::try_from(diagnostics).map(Collation)
+    }
+}
+
+fn tail<'a, I>(diagnostics: I) -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>>
+where
+    I: IntoIterator<Item = &'a Box<dyn Diagnostic + 'a>>,
+    I::IntoIter: 'a,
+{
+    diagnostics
+        .into_iter()
+        .skip(1)
+        .try_into_iter1()
+        .ok()
+        .map(|diagnostics| {
+            Box::new(diagnostics.into_iter().map(AsRef::as_ref))
+                as Box<dyn Iterator<Item = &dyn Diagnostic>>
+        })
 }

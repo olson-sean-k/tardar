@@ -2,8 +2,8 @@
 //! `Result`][`DiagnosticResult`]s are the primary extension, which aggregate [`Diagnostic`]s in
 //! both the `Ok` and `Err` variants.
 
-use miette::Diagnostic;
-use mitsein::iter1::{Extend1, IntoIterator1, Iterator1};
+use miette::{Diagnostic, LabeledSpan, Severity, SourceCode};
+use mitsein::iter1::{Extend1, FromIterator1, IntoIterator1, Iterator1, IteratorExt as _};
 use mitsein::slice1::Slice1;
 use mitsein::vec1::Vec1;
 use std::error;
@@ -145,8 +145,6 @@ pub trait IteratorExt: Iterator + Sized {
     /// The [`Diagnostic`] items of the iterator are interpreted as non-errors. Note that the
     /// [`Severity`] is not examined and so the [`Diagnostic`]s may have error-level severities
     /// despite being interpreted as non-errors.
-    ///
-    /// [`Severity`]: miette::Severity
     fn into_non_error_diagnostic<'d>(self) -> DiagnosticResult<'d, ()>
     where
         Self: Iterator<Item = BoxedDiagnostic<'d>>;
@@ -171,8 +169,6 @@ pub trait ResultExt<T, E> {
     /// The error type `E` must be a [`Diagnostic`] and is interpreted as an error. Note that the
     /// [`Severity`] is not examined and so the [`Diagnostic`] may have a non-error severity
     /// despite being interpreted as an error.
-    ///
-    /// [`Severity`]: miette::Severity
     fn into_error_diagnostic<'d>(self) -> DiagnosticResult<'d, T>
     where
         E: 'd + Diagnostic;
@@ -187,6 +183,70 @@ impl<T, E> ResultExt<T, E> for Result<T, E> {
             Ok(output) => Ok(Diagnosed(output, vec![])),
             Err(error) => Err(Error([Box::from_diagnostic(error)].into())),
         }
+    }
+}
+
+/// A type that can be converted into a shared [`Diagnostic`] trait object through a reference.
+pub trait AsDiagnosticObject {
+    /// Converts `&self` to a [`Diagnostic`] trait object `&dyn Diagnostic`.
+    fn as_diagnostic_object(&self) -> &dyn Diagnostic;
+}
+
+impl<'d, D> AsDiagnosticObject for &'d D
+where
+    D: AsDiagnosticObject + ?Sized,
+{
+    fn as_diagnostic_object(&self) -> &dyn Diagnostic {
+        D::as_diagnostic_object(*self)
+    }
+}
+
+impl AsDiagnosticObject for dyn Diagnostic {
+    fn as_diagnostic_object(&self) -> &dyn Diagnostic {
+        self
+    }
+}
+
+/// A type that can be converted into a shared [non-empty slice][`Slice1`] of
+/// [`AsDiagnosticObject`]s through a reference.
+pub trait AsDiagnosticSlice1 {
+    /// The diagnostic type of items in the [`Slice1`].
+    type Diagnostic: AsDiagnosticObject;
+
+    /// Converts `&self` to a [`Slice1`] of [`AsDiagnosticObject`]s.
+    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic>;
+}
+
+impl<'c, T> AsDiagnosticSlice1 for &'c T
+where
+    T: AsDiagnosticSlice1 + ?Sized,
+{
+    type Diagnostic = T::Diagnostic;
+
+    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
+        T::as_diagnostic_slice1(*self)
+    }
+}
+
+impl<D> AsDiagnosticSlice1 for Slice1<D>
+where
+    D: AsDiagnosticObject,
+{
+    type Diagnostic = D;
+
+    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
+        self
+    }
+}
+
+impl<D> AsDiagnosticSlice1 for Vec1<D>
+where
+    D: AsDiagnosticObject,
+{
+    type Diagnostic = D;
+
+    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
+        self
     }
 }
 
@@ -206,6 +266,12 @@ impl<'d> BoxedDiagnosticExt<'d> for BoxedDiagnostic<'d> {
         D: Diagnostic + 'd,
     {
         Box::new(diagnostic) as Box<dyn Diagnostic + 'd>
+    }
+}
+
+impl<'d> AsDiagnosticObject for BoxedDiagnostic<'d> {
+    fn as_diagnostic_object(&self) -> &dyn Diagnostic {
+        self.as_ref()
     }
 }
 
@@ -300,8 +366,6 @@ impl<'d, T> DiagnosticResultExt<'d, T> for DiagnosticResult<'d, T> {
 /// arbitrary.
 ///
 /// See [`DiagnosticResult`].
-///
-/// [`Severity`]: miette::Severity
 #[derive(Debug)]
 pub struct Diagnosed<'d, T>(pub T, pub Vec<BoxedDiagnostic<'d>>);
 
@@ -341,6 +405,14 @@ impl<'d, T> Diagnosed<'d, T> {
         }
     }
 
+    pub fn collate(self) -> (T, Option<Collation<Vec1<BoxedDiagnostic<'d>>>>) {
+        let Diagnosed(output, diagnostics) = self;
+        (
+            output,
+            Vec1::try_from(diagnostics).ok().map(Collation::from),
+        )
+    }
+
     /// Gets the output `T`.
     pub fn output(&self) -> &T {
         &self.0
@@ -364,11 +436,17 @@ impl<'d, T> Diagnosed<'d, T> {
 /// [`Diagnostic`]s in an `Error` are arbitrary.
 ///
 /// `Error` implements [the standard `Error` trait][`error::Error`] and displays its associated
-/// [`Diagnostic`]s serially when formatted. `Error` is **not** itself a [`Diagnostic`].
+/// [`Diagnostic`]s serially when formatted.
 ///
 /// See [`DiagnosticResult`].
 ///
-/// [`Severity`]: miette::Severity
+/// # Relation to `Collation`
+///
+/// Both `Error` and [`Collation`] aggregate one or more [`Diagnostic`]s, but these types are
+/// distinct. `Error` is intended for continued aggregation of one or more **error**
+/// [`Diagnostic`]s via [`DiagnosticResult`]. `Error` is **not** itself a [`Diagnostic`], but
+/// exposes a collection of [`Diagnostic`]s from diagnostic functions. An `Error` [can be
+/// converted][`Error::collate`] into a [`Collation`] but not the other way around.
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct Error<'d>(pub Vec1<BoxedDiagnostic<'d>>);
@@ -377,6 +455,10 @@ impl<'d> Error<'d> {
     /// Converts from `Error` into its associated [`Diagnostic`]s.
     pub fn into_diagnostics(self) -> Vec1<BoxedDiagnostic<'d>> {
         self.0
+    }
+
+    pub fn collate(self) -> Collation<Vec1<BoxedDiagnostic<'d>>> {
+        Collation::from(self)
     }
 
     /// Gets the associated [`Diagnostic`]s of the `Error`.
@@ -408,5 +490,200 @@ impl<'d> IntoIterator for Error<'d> {
 impl<'d> IntoIterator1 for Error<'d> {
     fn into_iter1(self) -> Iterator1<Self::IntoIter> {
         self.0.into_iter1()
+    }
+}
+
+/// A collated [`Diagnostic`] of one or more related [`Diagnostic`]s.
+///
+/// `Collation` relates an arbitrary non-empty vector or slice of [`Diagnostic`] trait objects via
+/// [`Diagnostic::related`]. The [`Diagnostic`] and [`Error`][`error::Error`] implementations
+/// forward to the head and the tail is exposed by [`Diagnostic::related`].
+///
+/// `Collation` implements [the standard `Error` trait][`error::Error`] and displays its associated
+/// [`Diagnostic`]s serially when formatted.
+///
+/// # Relation to `Error`
+///
+/// Both `Collation` and [`Error`] aggregate one or more [`Diagnostic`]s, but these types are
+/// distinct. `Collation` is itself a [`Diagnostic`] and is intended for relating a collection of
+/// otherwise disjoint [`Diagnostic`]s via [`Diagnostic::related`]. This relationship cannot be
+/// modified (only nested).
+#[repr(transparent)]
+pub struct Collation<T>(T);
+
+impl<T> Collation<T>
+where
+    T: AsDiagnosticSlice1,
+{
+    fn first(&self) -> &dyn Diagnostic {
+        self.0.as_diagnostic_slice1().first().as_diagnostic_object()
+    }
+
+    /// Gets an iterator over the codes of the collated [`Diagnostic`]s.
+    pub fn codes(&self) -> impl '_ + Iterator<Item = Box<dyn Display + '_>> {
+        self.0
+            .as_diagnostic_slice1()
+            .iter()
+            .map(AsDiagnosticObject::as_diagnostic_object)
+            .flat_map(Diagnostic::code)
+    }
+
+    /// Gets an iterator over the [`Severity`]s of the collated [`Diagnostic`]s.
+    pub fn severities(&self) -> impl '_ + Iterator<Item = Severity> {
+        self.0
+            .as_diagnostic_slice1()
+            .iter()
+            .map(AsDiagnosticObject::as_diagnostic_object)
+            .flat_map(Diagnostic::severity)
+    }
+}
+
+impl<T> Debug for Collation<T> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("Collation").field(&"..").finish()
+    }
+}
+
+impl<T> Diagnostic for Collation<T>
+where
+    T: AsDiagnosticSlice1,
+{
+    fn code<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.first().code()
+    }
+
+    fn severity(&self) -> Option<Severity> {
+        self.first().severity()
+    }
+
+    fn help<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.first().help()
+    }
+
+    fn url<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.first().url()
+    }
+
+    fn source_code(&self) -> Option<&dyn SourceCode> {
+        self.first().source_code()
+    }
+
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        self.first().labels()
+    }
+
+    fn related<'a>(&'a self) -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>> {
+        self.0
+            .as_diagnostic_slice1()
+            .iter()
+            .skip(1)
+            .try_into_iter1()
+            .ok()
+            .map(|diagnostics| {
+                Box::new(
+                    diagnostics
+                        .into_iter()
+                        .map(AsDiagnosticObject::as_diagnostic_object),
+                ) as Box<dyn Iterator<Item = &dyn Diagnostic>>
+            })
+    }
+
+    fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
+        self.first().diagnostic_source()
+    }
+}
+
+impl<T> Display for Collation<T>
+where
+    T: AsDiagnosticSlice1,
+{
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        for diagnostic in self
+            .0
+            .as_diagnostic_slice1()
+            .iter()
+            .map(AsDiagnosticObject::as_diagnostic_object)
+        {
+            writeln!(formatter, "{}", diagnostic)?;
+        }
+        Ok(())
+    }
+}
+
+impl<T> error::Error for Collation<T>
+where
+    T: AsDiagnosticSlice1,
+{
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        self.first().source()
+    }
+}
+
+impl<'d> From<Error<'d>> for Collation<Vec1<BoxedDiagnostic<'d>>> {
+    fn from(error: Error<'d>) -> Self {
+        Collation::from(error.into_diagnostics())
+    }
+}
+
+impl<'c, D> From<&'c Slice1<D>> for Collation<&'c Slice1<D>>
+where
+    D: AsDiagnosticObject,
+{
+    fn from(diagnostics: &'c Slice1<D>) -> Self {
+        Collation(diagnostics)
+    }
+}
+
+impl<D> From<Vec1<D>> for Collation<Vec1<D>>
+where
+    D: AsDiagnosticObject,
+{
+    fn from(diagnostics: Vec1<D>) -> Self {
+        Collation(diagnostics)
+    }
+}
+
+impl<D> FromIterator1<D> for Collation<Vec1<D>>
+where
+    D: AsDiagnosticObject,
+{
+    fn from_iter1<I>(items: I) -> Self
+    where
+        I: IntoIterator1<Item = D>,
+    {
+        Collation::from(Vec1::from_iter1(items))
+    }
+}
+
+impl<'c, D> TryFrom<&'c [D]> for Collation<&'c Slice1<D>>
+where
+    D: AsDiagnosticObject,
+{
+    type Error = &'c [D];
+
+    fn try_from(diagnostics: &'c [D]) -> Result<Self, Self::Error> {
+        Slice1::try_from_slice(diagnostics).map(Collation::from)
+    }
+}
+
+impl<'d, T> TryFrom<Diagnosed<'d, T>> for Collation<Vec1<BoxedDiagnostic<'d>>> {
+    type Error = Diagnosed<'d, T>;
+
+    fn try_from(diagnosed: Diagnosed<'d, T>) -> Result<Self, Self::Error> {
+        let Diagnosed(output, diagnostics) = diagnosed;
+        Vec1::try_from(diagnostics)
+            .map(Collation::from)
+            .map_err(|diagnostics| Diagnosed(output, diagnostics))
+    }
+}
+
+impl<D> TryFrom<Vec<D>> for Collation<Vec1<D>>
+where
+    D: AsDiagnosticObject,
+{
+    type Error = Vec<D>;
+
+    fn try_from(diagnostics: Vec<D>) -> Result<Self, Self::Error> {
+        Vec1::try_from(diagnostics).map(Collation::from)
     }
 }

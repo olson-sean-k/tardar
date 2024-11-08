@@ -24,7 +24,38 @@ pub mod integration {
 }
 
 pub mod prelude {
-    pub use crate::{DiagnosticResultExt as _, IteratorExt as _, ResultExt as _};
+    pub use crate::{DiagnosticResultExt as _, ErrorExt as _, IteratorExt as _, ResultExt as _};
+}
+
+pub trait ErrorExt: error::Error {
+    fn sources(&self) -> Sources<'_>;
+}
+
+impl<E> ErrorExt for E
+where
+    E: error::Error,
+{
+    fn sources(&self) -> Sources<'_> {
+        Sources {
+            source: self.source(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Sources<'e> {
+    source: Option<&'e dyn error::Error>,
+}
+
+impl<'e> Iterator for Sources<'e> {
+    type Item = &'e dyn error::Error;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.source.take().map(|next| {
+            self.source = next.source();
+            next
+        })
+    }
 }
 
 /// Extension methods for [`Iterator`]s.

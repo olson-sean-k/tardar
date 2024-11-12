@@ -224,13 +224,7 @@ impl<'d, T> DiagnosticResultExt<'d, T> for DiagnosticResult<'d, T> {
         F: FnOnce(T) -> DiagnosticResult<'d, U>,
     {
         match self {
-            Ok(Diagnosed(output, mut diagnostics)) => match f(output) {
-                Ok(Diagnosed(output, tail)) => {
-                    diagnostics.extend(tail);
-                    Ok(Diagnosed(output, diagnostics))
-                }
-                Err(tail) => Err(Error(diagnostics.extend_non_empty(tail))),
-            },
+            Ok(diagnosed) => diagnosed.and_then_diagnose(f),
             Err(diagnostics) => Err(diagnostics),
         }
     }
@@ -261,6 +255,20 @@ impl<'d, T> Diagnosed<'d, T> {
     {
         let Diagnosed(output, diagnostics) = self;
         Diagnosed(f(output), diagnostics)
+    }
+
+    pub fn and_then_diagnose<U, F>(self, f: F) -> DiagnosticResult<'d, U>
+    where
+        F: FnOnce(T) -> DiagnosticResult<'d, U>,
+    {
+        let Diagnosed(output, mut diagnostics) = self;
+        match f(output) {
+            Ok(Diagnosed(output, tail)) => {
+                diagnostics.extend(tail);
+                Ok(Diagnosed(output, diagnostics))
+            }
+            Err(Error(tail)) => Err(Error(diagnostics.extend_non_empty(tail))),
+        }
     }
 
     pub fn collate(self) -> (T, Option<Collation<Vec1<BoxedDiagnostic<'d>>>>) {

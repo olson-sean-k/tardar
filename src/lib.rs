@@ -8,6 +8,8 @@ use mitsein::slice1::Slice1;
 use mitsein::vec1::Vec1;
 use std::error;
 use std::fmt::{self, Debug, Display, Formatter};
+use std::iter::{Chain, Flatten};
+use std::option;
 
 pub mod integration {
     pub mod miette {
@@ -18,9 +20,82 @@ pub mod integration {
 
 pub mod prelude {
     pub use crate::{
-        BoxedDiagnosticExt as _, DiagnosticResultExt as _, ErrorExt as _, IteratorExt as _,
-        ResultExt as _,
+        BoxedDiagnosticExt as _, DiagnosticExt as _, DiagnosticResultExt as _, ErrorExt as _,
+        IteratorExt as _, ResultExt as _,
     };
+}
+
+type Related<'d> = Flatten<option::IntoIter<Box<dyn Iterator<Item = &'d dyn Diagnostic> + 'd>>>;
+type HeadAndRelated<'d> = Chain<option::IntoIter<&'d dyn Diagnostic>, Related<'d>>;
+
+/// Extension methods for [`Diagnostic`]s.
+pub trait DiagnosticExt: Diagnostic {
+    /// Gets a [non-empty iterator][`Iterator1`] over the [`Diagnostic`]'s tree of related
+    /// [`Diagnostic`]s.
+    ///
+    /// [`Diagnostic`]s have zero or more related `Diagnostic`s. The returned iterator successively
+    /// calls [`Diagnostic::related`] and walks the tree to yield all related `Diagnostic`s. The
+    /// iterator also yields `self`.
+    fn tree(&self) -> Iterator1<Tree<'_>>;
+}
+
+impl<D> DiagnosticExt for D
+where
+    D: Diagnostic,
+{
+    fn tree(&self) -> Iterator1<Tree<'_>> {
+        // SAFETY: This `Tree` iterator must yield one or more items. `self` is pushed onto the
+        //         stack and is popped and yielded in the `Iterator` implementation for `Tree`, so
+        //         this `Tree` iterator always yields `self`.
+        unsafe {
+            Iterator1::from_iter_unchecked(Tree {
+                stack: vec![Some(self as &dyn Diagnostic)
+                    .into_iter()
+                    .chain(None.into_iter().flatten())],
+                related: None.into_iter().chain(None.into_iter().flatten()),
+            })
+        }
+    }
+}
+
+/// An [`Iterator`] over a [`Diagnostic`]'s tree of related [`Diagnostic`]s.
+///
+/// See [`DiagnosticExt::tree`].
+pub struct Tree<'d> {
+    stack: Vec<HeadAndRelated<'d>>,
+    related: HeadAndRelated<'d>,
+}
+
+impl<'d> Debug for Tree<'d> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Tree")
+            .field("stack", &"..")
+            .field("related", &"..")
+            .finish()
+    }
+}
+
+impl<'d> Iterator for Tree<'d> {
+    type Item = &'d dyn Diagnostic;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(diagnostic) = self.related.next() {
+                self.stack.push(
+                    None.into_iter()
+                        .chain(diagnostic.related().into_iter().flatten()),
+                );
+                return Some(diagnostic);
+            }
+            else if let Some(related) = self.stack.pop() {
+                self.related = related;
+            }
+            else {
+                return None;
+            }
+        }
+    }
 }
 
 /// Extension methods for [`Error`][`error::Error`]s.
@@ -44,6 +119,8 @@ where
 }
 
 /// An [`Iterator`] over sources of an [`Error`][`error::Error`].
+///
+/// See [`ErrorExt::sources`].
 #[derive(Debug)]
 pub struct Sources<'e> {
     source: Option<&'e dyn error::Error>,

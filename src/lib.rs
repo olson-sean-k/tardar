@@ -153,6 +153,27 @@ where
     }
 }
 
+pub trait Iterator1Ext<I>
+where
+    I: Iterator,
+{
+    fn collate<'d>(self) -> Collation<Vec1<BoxedDiagnostic<'d>>>
+    where
+        I: Iterator<Item = BoxedDiagnostic<'d>>;
+}
+
+impl<I> Iterator1Ext<I> for Iterator1<I>
+where
+    I: Iterator,
+{
+    fn collate<'d>(self) -> Collation<Vec1<BoxedDiagnostic<'d>>>
+    where
+        I: Iterator<Item = BoxedDiagnostic<'d>>,
+    {
+        Collation::from(self.collect1::<Vec1<_>>())
+    }
+}
+
 /// Extension methods for [`Result`]s.
 ///
 /// [`Result`]: std::result::Result
@@ -403,6 +424,15 @@ impl<'d> IntoIterator1 for Error<'d> {
 
 #[repr(transparent)]
 pub struct Collation<D>(D);
+
+impl<'d> Collation<Vec1<BoxedDiagnostic<'d>>> {
+    pub fn from_boxed_diagnostics<I>(diagnostics: I) -> Self
+    where
+        I: IntoIterator1<Item = BoxedDiagnostic<'d>>,
+    {
+        Collation::from(diagnostics.into_iter1().collect1::<Vec1<_>>())
+    }
+}
 
 impl<'d, D> Collation<D>
 where

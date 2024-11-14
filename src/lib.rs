@@ -423,6 +423,12 @@ where
     }
 }
 
+impl<D> Debug for Collation<D> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("Collation").field(&"..").finish()
+    }
+}
+
 impl<'b, 'd> Diagnostic for Collation<&'b Slice1<BoxedDiagnostic<'d>>> {
     fn code<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
         self.0.first().code()
@@ -491,12 +497,6 @@ impl<'d> Diagnostic for Collation<Vec1<BoxedDiagnostic<'d>>> {
     }
 }
 
-impl<D> Debug for Collation<D> {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.debug_tuple("Collation").field(&"..").finish()
-    }
-}
-
 impl<'d, D> Display for Collation<D>
 where
     D: Deref<Target = Slice1<BoxedDiagnostic<'d>>>,
@@ -515,7 +515,7 @@ impl<'d, D> error::Error for Collation<D> where D: Deref<Target = Slice1<BoxedDi
 
 impl<'d> From<Error<'d>> for Collation<Vec1<BoxedDiagnostic<'d>>> {
     fn from(error: Error<'d>) -> Self {
-        Collation(error.into_diagnostics())
+        Collation::from(error.into_diagnostics())
     }
 }
 
@@ -535,7 +535,7 @@ impl<'b, 'd> TryFrom<&'b [BoxedDiagnostic<'d>]> for Collation<&'b Slice1<BoxedDi
     type Error = &'b [BoxedDiagnostic<'d>];
 
     fn try_from(diagnostics: &'b [BoxedDiagnostic<'d>]) -> Result<Self, Self::Error> {
-        Slice1::try_from_slice(diagnostics).map(Collation)
+        Slice1::try_from_slice(diagnostics).map(Collation::from)
     }
 }
 
@@ -545,7 +545,7 @@ impl<'d, T> TryFrom<Diagnosed<'d, T>> for Collation<Vec1<BoxedDiagnostic<'d>>> {
     fn try_from(diagnosed: Diagnosed<'d, T>) -> Result<Self, Self::Error> {
         let Diagnosed(output, diagnostics) = diagnosed;
         Vec1::try_from(diagnostics)
-            .map(Collation)
+            .map(Collation::from)
             .map_err(|diagnostics| Diagnosed(output, diagnostics))
     }
 }
@@ -554,7 +554,7 @@ impl<'d> TryFrom<Vec<BoxedDiagnostic<'d>>> for Collation<Vec1<BoxedDiagnostic<'d
     type Error = Vec<BoxedDiagnostic<'d>>;
 
     fn try_from(diagnostics: Vec<BoxedDiagnostic<'d>>) -> Result<Self, Self::Error> {
-        Vec1::try_from(diagnostics).map(Collation)
+        Vec1::try_from(diagnostics).map(Collation::from)
     }
 }
 

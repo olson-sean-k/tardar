@@ -401,9 +401,27 @@ impl<'d> IntoIterator1 for Error<'d> {
     }
 }
 
-#[derive(Debug)]
 #[repr(transparent)]
 pub struct Collation<D>(D);
+
+impl<'d, D> Collation<D>
+where
+    D: Deref<Target = Slice1<BoxedDiagnostic<'d>>>,
+{
+    pub fn codes<'a>(&'a self) -> impl 'a + Iterator<Item = Box<dyn Display + 'a>>
+    where
+        'd: 'a,
+    {
+        self.0.iter().flat_map(|diagnostic| diagnostic.code())
+    }
+
+    pub fn severities<'a>(&'a self) -> impl 'a + Iterator<Item = Severity>
+    where
+        'd: 'a,
+    {
+        self.0.iter().flat_map(|diagnostic| diagnostic.severity())
+    }
+}
 
 impl<'b, 'd> Diagnostic for Collation<&'b Slice1<BoxedDiagnostic<'d>>> {
     fn code<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
@@ -431,7 +449,7 @@ impl<'b, 'd> Diagnostic for Collation<&'b Slice1<BoxedDiagnostic<'d>>> {
     }
 
     fn related<'a>(&'a self) -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>> {
-        self::tail(self.0.iter())
+        self::map_collation_tail(self.0.iter())
     }
 
     fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
@@ -465,11 +483,17 @@ impl<'d> Diagnostic for Collation<Vec1<BoxedDiagnostic<'d>>> {
     }
 
     fn related<'a>(&'a self) -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>> {
-        self::tail(self.0.iter())
+        self::map_collation_tail(self.0.iter())
     }
 
     fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
         self.0.first().diagnostic_source()
+    }
+}
+
+impl<D> Debug for Collation<D> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("Collation").field(&"..").finish()
     }
 }
 
@@ -485,10 +509,9 @@ where
     }
 }
 
-impl<'d, D> error::Error for Collation<D> where
-    D: Deref<Target = Slice1<BoxedDiagnostic<'d>>> + Debug
-{
-}
+// TODO: It appears that forwarding the cause of the first diagnostic is not possible. Is there
+//       some way to implement `cause` here?
+impl<'d, D> error::Error for Collation<D> where D: Deref<Target = Slice1<BoxedDiagnostic<'d>>> {}
 
 impl<'d> From<Error<'d>> for Collation<Vec1<BoxedDiagnostic<'d>>> {
     fn from(error: Error<'d>) -> Self {
@@ -535,7 +558,9 @@ impl<'d> TryFrom<Vec<BoxedDiagnostic<'d>>> for Collation<Vec1<BoxedDiagnostic<'d
     }
 }
 
-fn tail<'a, I>(diagnostics: I) -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>>
+fn map_collation_tail<'a, I>(
+    diagnostics: I,
+) -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>>
 where
     I: IntoIterator<Item = &'a Box<dyn Diagnostic + 'a>>,
     I::IntoIter: 'a,

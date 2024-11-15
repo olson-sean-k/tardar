@@ -17,13 +17,6 @@ use std::fmt::{self, Debug, Display, Formatter};
 use std::iter::{Chain, Flatten};
 use std::option;
 
-pub mod integration {
-    pub mod miette {
-        #[doc(hidden)]
-        pub use ::miette::*;
-    }
-}
-
 pub mod prelude {
     pub use crate::{
         BoxedDiagnosticExt as _, DiagnosticExt as _, DiagnosticResultExt as _, ErrorExt as _,

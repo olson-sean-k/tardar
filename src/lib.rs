@@ -181,6 +181,64 @@ impl<T, E> ResultExt<T, E> for Result<T, E> {
     }
 }
 
+pub trait AsDiagnosticObject {
+    fn as_diagnostic_object(&self) -> &dyn Diagnostic;
+}
+
+impl<'d, T> AsDiagnosticObject for &'d T
+where
+    T: AsDiagnosticObject + ?Sized,
+{
+    fn as_diagnostic_object(&self) -> &dyn Diagnostic {
+        T::as_diagnostic_object(*self)
+    }
+}
+
+impl AsDiagnosticObject for dyn Diagnostic {
+    fn as_diagnostic_object(&self) -> &dyn Diagnostic {
+        self
+    }
+}
+
+pub trait AsDiagnosticSlice1 {
+    type Diagnostic: AsDiagnosticObject;
+
+    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic>;
+}
+
+impl<'c, T> AsDiagnosticSlice1 for &'c T
+where
+    T: AsDiagnosticSlice1 + ?Sized,
+{
+    type Diagnostic = T::Diagnostic;
+
+    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
+        T::as_diagnostic_slice1(*self)
+    }
+}
+
+impl<D> AsDiagnosticSlice1 for Slice1<D>
+where
+    D: AsDiagnosticObject,
+{
+    type Diagnostic = D;
+
+    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
+        self
+    }
+}
+
+impl<D> AsDiagnosticSlice1 for Vec1<D>
+where
+    D: AsDiagnosticObject,
+{
+    type Diagnostic = D;
+
+    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
+        self
+    }
+}
+
 pub type BoxedDiagnostic<'d> = Box<dyn Diagnostic + 'd>;
 
 pub trait BoxedDiagnosticExt<'d> {
@@ -195,6 +253,12 @@ impl<'d> BoxedDiagnosticExt<'d> for BoxedDiagnostic<'d> {
         D: Diagnostic + 'd,
     {
         Box::new(diagnostic) as Box<dyn Diagnostic + 'd>
+    }
+}
+
+impl<'d> AsDiagnosticObject for BoxedDiagnostic<'d> {
+    fn as_diagnostic_object(&self) -> &dyn Diagnostic {
+        self.as_ref()
     }
 }
 
@@ -397,70 +461,6 @@ impl<'d> IntoIterator for Error<'d> {
 impl<'d> IntoIterator1 for Error<'d> {
     fn into_iter1(self) -> Iterator1<Self::IntoIter> {
         self.0.into_iter1()
-    }
-}
-
-pub trait AsDiagnosticObject {
-    fn as_diagnostic_object(&self) -> &dyn Diagnostic;
-}
-
-impl<'d, T> AsDiagnosticObject for &'d T
-where
-    T: AsDiagnosticObject + ?Sized,
-{
-    fn as_diagnostic_object(&self) -> &dyn Diagnostic {
-        T::as_diagnostic_object(*self)
-    }
-}
-
-impl<'d> AsDiagnosticObject for BoxedDiagnostic<'d> {
-    fn as_diagnostic_object(&self) -> &dyn Diagnostic {
-        self.as_ref()
-    }
-}
-
-impl AsDiagnosticObject for dyn Diagnostic {
-    fn as_diagnostic_object(&self) -> &dyn Diagnostic {
-        self
-    }
-}
-
-pub trait AsDiagnosticSlice1 {
-    type Diagnostic: AsDiagnosticObject;
-
-    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic>;
-}
-
-impl<'c, T> AsDiagnosticSlice1 for &'c T
-where
-    T: AsDiagnosticSlice1 + ?Sized,
-{
-    type Diagnostic = T::Diagnostic;
-
-    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
-        T::as_diagnostic_slice1(*self)
-    }
-}
-
-impl<D> AsDiagnosticSlice1 for Slice1<D>
-where
-    D: AsDiagnosticObject,
-{
-    type Diagnostic = D;
-
-    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
-        self
-    }
-}
-
-impl<D> AsDiagnosticSlice1 for Vec1<D>
-where
-    D: AsDiagnosticObject,
-{
-    type Diagnostic = D;
-
-    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
-        self
     }
 }
 

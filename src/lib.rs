@@ -25,7 +25,10 @@ pub mod integration {
 }
 
 pub mod prelude {
-    pub use crate::{DiagnosticResultExt as _, ErrorExt as _, IteratorExt as _, ResultExt as _};
+    pub use crate::{
+        BoxedDiagnosticExt as _, DiagnosticExt as _, DiagnosticResultExt as _, ErrorExt as _,
+        IteratorExt as _, ResultExt as _,
+    };
 }
 
 type Related<'d> = Flatten<option::IntoIter<Box<dyn Iterator<Item = &'d dyn Diagnostic> + 'd>>>;

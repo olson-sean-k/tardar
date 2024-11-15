@@ -479,14 +479,16 @@ where
         self.0
             .as_diagnostic_slice1()
             .iter()
-            .flat_map(|diagnostic| diagnostic.as_diagnostic_object().code())
+            .map(AsDiagnosticObject::as_diagnostic_object)
+            .flat_map(Diagnostic::code)
     }
 
     pub fn severities(&self) -> impl '_ + Iterator<Item = Severity> {
         self.0
             .as_diagnostic_slice1()
             .iter()
-            .flat_map(|diagnostic| diagnostic.as_diagnostic_object().severity())
+            .map(AsDiagnosticObject::as_diagnostic_object)
+            .flat_map(Diagnostic::severity)
     }
 }
 

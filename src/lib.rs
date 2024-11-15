@@ -185,12 +185,12 @@ pub trait AsDiagnosticObject {
     fn as_diagnostic_object(&self) -> &dyn Diagnostic;
 }
 
-impl<'d, T> AsDiagnosticObject for &'d T
+impl<'d, D> AsDiagnosticObject for &'d D
 where
-    T: AsDiagnosticObject + ?Sized,
+    D: AsDiagnosticObject + ?Sized,
 {
     fn as_diagnostic_object(&self) -> &dyn Diagnostic {
-        T::as_diagnostic_object(*self)
+        D::as_diagnostic_object(*self)
     }
 }
 

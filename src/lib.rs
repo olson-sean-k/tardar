@@ -59,7 +59,7 @@ pub struct Tree<'d> {
     related: HeadAndRelated<'d>,
 }
 
-impl<'d> Debug for Tree<'d> {
+impl Debug for Tree<'_> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Tree")
@@ -185,7 +185,7 @@ pub trait AsDiagnosticObject {
     fn as_diagnostic_object(&self) -> &dyn Diagnostic;
 }
 
-impl<'d, D> AsDiagnosticObject for &'d D
+impl<D> AsDiagnosticObject for &'_ D
 where
     D: AsDiagnosticObject + ?Sized,
 {
@@ -210,7 +210,7 @@ pub trait AsDiagnosticSlice1 {
     fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic>;
 }
 
-impl<'c, T> AsDiagnosticSlice1 for &'c T
+impl<T> AsDiagnosticSlice1 for &'_ T
 where
     T: AsDiagnosticSlice1 + ?Sized,
 {
@@ -262,7 +262,7 @@ impl<'d> BoxedDiagnosticExt<'d> for BoxedDiagnostic<'d> {
     }
 }
 
-impl<'d> AsDiagnosticObject for BoxedDiagnostic<'d> {
+impl AsDiagnosticObject for BoxedDiagnostic<'_> {
     fn as_diagnostic_object(&self) -> &dyn Diagnostic {
         self.as_ref()
     }
@@ -460,7 +460,7 @@ impl<'d> Error<'d> {
     }
 }
 
-impl<'d> Display for Error<'d> {
+impl Display for Error<'_> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         for diagnostic in self.diagnostics().iter() {
             writeln!(formatter, "{}", diagnostic)?;
@@ -469,7 +469,7 @@ impl<'d> Display for Error<'d> {
     }
 }
 
-impl<'d> error::Error for Error<'d> {}
+impl error::Error for Error<'_> {}
 
 impl<'d> IntoIterator for Error<'d> {
     type IntoIter = <Vec1<BoxedDiagnostic<'d>> as IntoIterator>::IntoIter;
@@ -480,7 +480,7 @@ impl<'d> IntoIterator for Error<'d> {
     }
 }
 
-impl<'d> IntoIterator1 for Error<'d> {
+impl IntoIterator1 for Error<'_> {
     fn into_iter1(self) -> Iterator1<Self::IntoIter> {
         self.0.into_iter1()
     }

@@ -123,9 +123,8 @@ impl<'e> Iterator for Sources<'e> {
     type Item = &'e dyn error::Error;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.source.take().map(|next| {
+        self.source.take().inspect(|next| {
             self.source = next.source();
-            next
         })
     }
 }

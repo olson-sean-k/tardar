@@ -30,6 +30,7 @@
 //! #
 //! # impl ast { /*
 //! mod ast {
+//!     ...
 //! # */
 //!     pub fn parse(expression: &str) -> DiagnosticResult<'_, Ast<'_>> {
 //! #         tardar::Diagnosed::ok(Ast(expression)) /*
@@ -39,21 +40,35 @@
 //! # } /*
 //! }
 //! # */
-//! # impl rule {
-//! #     pub fn check<'t>(tree: Ast<'t>) -> DiagnosticResult<'t, Checked<Ast<'t>>> {
-//! #         tardar::Diagnosed::ok(Checked(tree))
-//! #     }
-//! # }
-//! # impl hint {
-//! #     pub fn check<'c, 't>(
-//! #         tree: &'c Checked<Ast<'t>>,
-//! #     ) -> impl 'c + Iterator<Item = tardar::BoxedDiagnostic<'t>>
-//! #     where
-//! #         't: 'c,
-//! #     {
-//! #         Option::<_>::None.into_iter()
-//! #     }
-//! # }
+//! # impl rule { /*
+//! mod rule {
+//!     ...
+//! # */
+//!     pub fn check<'t>(tree: Ast<'t>) -> DiagnosticResult<'t, Checked<Ast<'t>>> {
+//! #         tardar::Diagnosed::ok(Checked(tree)) /*
+//!         ...
+//! # */
+//!     }
+//! # } /*
+//! }
+//! # */
+//! # impl hint { /*
+//! mod hint {
+//!     ...
+//! # */
+//!     pub fn check<'c, 't>(
+//!         tree: &'c Checked<Ast<'t>>,
+//!     ) -> impl 'c + Iterator<Item = tardar::BoxedDiagnostic<'t>>
+//!     where
+//!         't: 'c,
+//!     {
+//! #         Option::<_>::None.into_iter() /*
+//!         ...
+//! # */
+//!     }
+//! # } /*
+//! }
+//! # */
 //!
 //! pub fn parse_and_check(expression: &str) -> DiagnosticResult<'_, Checked<Ast<'_>>> {
 //!     ast::parse(expression)

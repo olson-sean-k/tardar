@@ -16,65 +16,44 @@
 //! language can aggregate `Diagnostic`s when combining functions.
 //!
 //! ```rust
-//! # #![expect(non_camel_case_types)]
-//! #
 //! use tardar::prelude::*;
-//! use tardar::DiagnosticResult;
+//! use tardar::{BoxedDiagnostic, DiagnosticResult};
+//!
+//! # /*
+//! ...
+//! # */
 //!
 //! # struct Checked<T>(T);
 //! # struct Ast<'t>(&'t str);
 //! #
-//! # struct ast;
-//! # struct rule;
-//! # struct hint;
-//! #
-//! # impl ast { /*
-//! mod ast {
+//! pub fn parse(expression: &str) -> DiagnosticResult<'_, Ast<'_>> {
+//! #     tardar::Diagnosed::ok(Ast(expression)) /*
 //!     ...
 //! # */
-//!     pub fn parse(expression: &str) -> DiagnosticResult<'_, Ast<'_>> {
-//! #         tardar::Diagnosed::ok(Ast(expression)) /*
-//!         ...
-//! # */
-//!     }
-//! # } /*
 //! }
-//! # */
-//! # impl rule { /*
-//! mod rule {
+//!
+//! pub fn check<'t>(tree: Ast<'t>) -> DiagnosticResult<'t, Checked<Ast<'t>>> {
+//! #     tardar::Diagnosed::ok(Checked(tree)) /*
 //!     ...
 //! # */
-//!     pub fn check<'t>(tree: Ast<'t>) -> DiagnosticResult<'t, Checked<Ast<'t>>> {
-//! #         tardar::Diagnosed::ok(Checked(tree)) /*
-//!         ...
-//! # */
-//!     }
-//! # } /*
 //! }
-//! # */
-//! # impl hint { /*
-//! mod hint {
+//!
+//! pub fn analyze<'c, 't>(
+//!     tree: &'c Checked<Ast<'t>>,
+//! ) -> impl 'c + Iterator<Item = BoxedDiagnostic<'t>>
+//! where
+//!     't: 'c,
+//! {
+//! #     Option::<_>::None.into_iter() /*
 //!     ...
 //! # */
-//!     pub fn check<'c, 't>(
-//!         tree: &'c Checked<Ast<'t>>,
-//!     ) -> impl 'c + Iterator<Item = tardar::BoxedDiagnostic<'t>>
-//!     where
-//!         't: 'c,
-//!     {
-//! #         Option::<_>::None.into_iter() /*
-//!         ...
-//! # */
-//!     }
-//! # } /*
 //! }
-//! # */
 //!
 //! pub fn parse_and_check(expression: &str) -> DiagnosticResult<'_, Checked<Ast<'_>>> {
-//!     ast::parse(expression)
-//!         .and_then_diagnose(rule::check)
+//!     parse(expression)
+//!         .and_then_diagnose(check)
 //!         .and_then_diagnose(|tree| {
-//!             hint::check(&tree)
+//!             analyze(&tree)
 //!                 .into_non_error_diagnostic()
 //!                 .map_output(|_| tree)
 //!         })

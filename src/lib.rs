@@ -1,6 +1,91 @@
-//! **Tardar** is a library that provides extensions for the [`miette`] crate. [Diagnostic
-//! `Result`][`DiagnosticResult`]s are the primary extension, which aggregate [`Diagnostic`]s in
-//! both the `Ok` and `Err` variants.
+//! **Tardar** is a Rust library that provides extensions for the [`miette`] crate.
+//! These extensions primarily provide diagnostic `Result`s and ergonomic
+//! aggregation and collation of `Diagnostic`s.
+//!
+//! ## Diagnostic Results
+//!
+//! `DiagnosticResult` is a `Result` type that aggregates `Diagnostic`s associated
+//! with an output type `T` in both the success and failure case (`Ok` and `Err`
+//! variants). The `Ok` variant contains a `Diagnosed<T>` with zero or more
+//! non-error `Diagnostic`s. The `Err` variant contains an `Error<'_>` with one or
+//! more `Diagnostic`s where at least one `Diagnostic` is considered an error.
+//!
+//! Together with extension methods, `DiagnosticResult` supports fluent and
+//! ergonomic use of diagnostic functions (functions that return a
+//! `DiagnosticResult`). For example, a library that parses a data structure or
+//! language can aggregate `Diagnostic`s when combining functions.
+//!
+//! ```rust
+//! # #![expect(non_camel_case_types)]
+//! #
+//! use tardar::prelude::*;
+//! use tardar::DiagnosticResult;
+//!
+//! # struct Checked<T>(T);
+//! # struct Ast<'t>(&'t str);
+//! #
+//! # struct ast;
+//! # struct rule;
+//! # struct hint;
+//! #
+//! # impl ast { /*
+//! mod ast {
+//! # */
+//!     pub fn parse(expression: &str) -> DiagnosticResult<'_, Ast<'_>> {
+//! #         tardar::Diagnosed::ok(Ast(expression)) /*
+//!         ...
+//! # */
+//!     }
+//! # } /*
+//! }
+//! # */
+//! # impl rule {
+//! #     pub fn check<'t>(tree: Ast<'t>) -> DiagnosticResult<'t, Checked<Ast<'t>>> {
+//! #         tardar::Diagnosed::ok(Checked(tree))
+//! #     }
+//! # }
+//! # impl hint {
+//! #     pub fn check<'c, 't>(
+//! #         tree: &'c Checked<Ast<'t>>,
+//! #     ) -> impl 'c + Iterator<Item = tardar::BoxedDiagnostic<'t>>
+//! #     where
+//! #         't: 'c,
+//! #     {
+//! #         Option::<_>::None.into_iter()
+//! #     }
+//! # }
+//!
+//! pub fn parse_and_check(expression: &str) -> DiagnosticResult<'_, Checked<Ast<'_>>> {
+//!     ast::parse(expression)
+//!         .and_then_diagnose(rule::check)
+//!         .and_then_diagnose(|tree| {
+//!             hint::check(&tree)
+//!                 .into_non_error_diagnostic()
+//!                 .map_output(|_| tree)
+//!         })
+//! }
+//! ```
+//!
+//! Here, `and_then_diagnose` is much like the standard `Result::and_then`, but
+//! accepts a diagnostic function and preserves any input `Diagnostic`s. Similarly,
+//! `map_output` resembles `Result::map`, but instead maps only the output `T` and
+//! forwards `Diagnostic`s.
+//!
+//! `DiagnosticResult`s can be constructed from related types, such as `Result`
+//! types of a single error `Diagnostic` or iterators with `Diagnostic` items.
+// //! ```rust
+// //! fn parse(expression: &str) -> Result<Ast<'_>, ParseError> { ... }
+// //!
+// //! fn analyze(tree: &Ast) -> impl '_ + Iterator<Item = BoxedDiagnostic<'_>> { ... }
+// //!
+// //! pub fn parse_and_analyze(expression: &str) -> DiagnosticResult<'_, Ast<'_>> {
+// //!     parse(expression)
+// //!         .into_error_diagnostic()
+// //!         .and_then_diagnose(|tree| analyze(&tree).into_non_error_diagnostic());
+// //! }
+// //! ```
+//!
+//! ## Collation
 
 use miette::{Diagnostic, LabeledSpan, Severity, SourceCode};
 use mitsein::iter1::{Extend1, FromIterator1, IntoIterator1, Iterator1, IteratorExt as _};
@@ -362,6 +447,15 @@ impl<'d, T> DiagnosticResultExt<'d, T> for DiagnosticResult<'d, T> {
 pub struct Diagnosed<'d, T>(pub T, pub Vec<BoxedDiagnostic<'d>>);
 
 impl<'d, T> Diagnosed<'d, T> {
+    pub const fn ok(output: T) -> DiagnosticResult<'d, T> {
+        Ok(Diagnosed::from_output(output))
+    }
+
+    /// Constructs a `Diagnosed` from an output `T` with no [`Diagnostic`]s.
+    pub const fn from_output(output: T) -> Self {
+        Diagnosed(output, vec![])
+    }
+
     /// Converts from `Diagnosed` into its output `T`, discarding any [`Diagnostic`]s.
     pub fn into_output(self) -> T {
         self.0

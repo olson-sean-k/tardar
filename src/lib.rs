@@ -1,62 +1,41 @@
-//! **Tardar** is a Rust library that provides extensions for the [`miette`] crate.
-//! These extensions primarily provide diagnostic `Result`s and ergonomic
-//! aggregation and collation of `Diagnostic`s.
+//! **Tardar** is a Rust library that provides extensions for the [`miette`] crate. These
+//! extensions primarily provide diagnostic `Result`s and ergonomic aggregation and collation of
+//! `Diagnostic`s.
 //!
 //! ## Diagnostic Results
 //!
-//! `DiagnosticResult` is a `Result` type that aggregates `Diagnostic`s associated
-//! with an output type `T` in both the success and failure case (`Ok` and `Err`
-//! variants). The `Ok` variant contains a `Diagnosed<T>` with zero or more
-//! non-error `Diagnostic`s. The `Err` variant contains an `Error<'_>` with one or
-//! more `Diagnostic`s where at least one `Diagnostic` is considered an error.
+//! `DiagnosticResult` is a `Result` type that aggregates `Diagnostic`s associated with an output
+//! type `T` in both the success and failure case (`Ok` and `Err` variants). The `Ok` variant
+//! contains a `Diagnosed<T>` with zero or more non-error `Diagnostic`s. The `Err` variant contains
+//! an `Error<'_>` with one or more `Diagnostic`s where at least one `Diagnostic` is considered an
+//! error.
 //!
-//! Together with extension methods, `DiagnosticResult` supports fluent and
-//! ergonomic use of diagnostic functions (functions that return a
-//! `DiagnosticResult`). For example, a library that parses a data structure or
-//! language can aggregate `Diagnostic`s when combining functions.
+//! Together with extension methods, `DiagnosticResult` supports fluent and ergonomic use of
+//! diagnostic functions (functions that return a `DiagnosticResult`). For example, a library that
+//! parses a data structure or language from text can aggregate `Diagnostic`s when combining
+//! functions.
 //!
 //! ```rust
 //! use tardar::prelude::*;
 //! use tardar::{BoxedDiagnostic, DiagnosticResult};
 //!
-//! # /*
-//! ...
-//! # */
-//!
 //! # struct Checked<T>(T);
 //! # struct Ast<'t>(&'t str);
 //! #
-//! pub fn parse(expression: &str) -> DiagnosticResult<'_, Ast<'_>> {
+//! fn parse(expression: &str) -> DiagnosticResult<'_, Ast<'_>> {
 //! #     tardar::Diagnosed::ok(Ast(expression)) /*
 //!     ...
 //! # */
 //! }
 //!
-//! pub fn check<'t>(tree: Ast<'t>) -> DiagnosticResult<'t, Checked<Ast<'t>>> {
+//! fn check<'t>(tree: Ast<'t>) -> DiagnosticResult<'t, Checked<Ast<'t>>> {
 //! #     tardar::Diagnosed::ok(Checked(tree)) /*
 //!     ...
 //! # */
 //! }
 //!
-//! pub fn analyze<'c, 't>(
-//!     tree: &'c Checked<Ast<'t>>,
-//! ) -> impl 'c + Iterator<Item = BoxedDiagnostic<'t>>
-//! where
-//!     't: 'c,
-//! {
-//! #     Option::<_>::None.into_iter() /*
-//!     ...
-//! # */
-//! }
-//!
 //! pub fn parse_and_check(expression: &str) -> DiagnosticResult<'_, Checked<Ast<'_>>> {
-//!     parse(expression)
-//!         .and_then_diagnose(check)
-//!         .and_then_diagnose(|tree| {
-//!             analyze(&tree)
-//!                 .into_non_error_diagnostic()
-//!                 .map_output(|_| tree)
-//!         })
+//!     parse(expression).and_then_diagnose(check)
 //! }
 //! ```
 //!

@@ -130,7 +130,7 @@ impl<'e> Iterator for Sources<'e> {
 }
 
 /// Extension methods for [`Iterator`]s.
-pub trait IteratorExt: Iterator + Sized {
+pub trait IteratorExt: Iterator {
     /// Converts from a type that implements `Iterator<Item = BoxedDiagnostic<'d>>` into
     /// `DiagnosticResult<'d, ()>`.
     ///
@@ -139,7 +139,7 @@ pub trait IteratorExt: Iterator + Sized {
     /// despite being interpreted as non-errors.
     fn into_non_error_diagnostic<'d>(self) -> DiagnosticResult<'d, ()>
     where
-        Self: Iterator<Item = BoxedDiagnostic<'d>>;
+        Self: Iterator<Item = BoxedDiagnostic<'d>> + Sized;
 }
 
 impl<I> IteratorExt for I
@@ -148,9 +148,33 @@ where
 {
     fn into_non_error_diagnostic<'d>(self) -> DiagnosticResult<'d, ()>
     where
-        Self: Iterator<Item = BoxedDiagnostic<'d>>,
+        Self: Iterator<Item = BoxedDiagnostic<'d>> + Sized,
     {
         Ok(Diagnosed((), self.collect()))
+    }
+}
+
+/// Extension methods for [`Iterator1`].
+pub trait Iterator1Ext<I>: Sized {
+    /// Converts from an [`Iterator1`] of `BoxedDiagnostic<'d>` into `DiagnosticResult<'d, ()>`.
+    ///
+    /// The [`Diagnostic`] items of the iterator are interpreted as errors. Note that the
+    /// [`Severity`] is not examined and so the [`Diagnostic`]s may have non-error severities
+    /// despite being interpreted as errors.
+    ///
+    /// To interpret the items as non-errors, first convert the [`Iterator1`] into an iterator and
+    /// then use [`into_non_error_diagnostic`][`IteratorExt::into_non_error_diagnostic`].
+    fn into_error_diagnostic<'d>(self) -> DiagnosticResult<'d, ()>
+    where
+        I: Iterator<Item = BoxedDiagnostic<'d>> + Sized;
+}
+
+impl<I> Iterator1Ext<I> for Iterator1<I> {
+    fn into_error_diagnostic<'d>(self) -> DiagnosticResult<'d, ()>
+    where
+        I: Iterator<Item = BoxedDiagnostic<'d>> + Sized,
+    {
+        Err(Error(self.collect1()))
     }
 }
 

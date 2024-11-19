@@ -362,6 +362,16 @@ impl<'d, T> DiagnosticResultExt<'d, T> for DiagnosticResult<'d, T> {
 pub struct Diagnosed<'d, T>(pub T, pub Vec<BoxedDiagnostic<'d>>);
 
 impl<'d, T> Diagnosed<'d, T> {
+    /// Constructs a [`DiagnosticResult`] from an output `T` with no [`Diagnostic`]s.
+    pub const fn ok(output: T) -> DiagnosticResult<'d, T> {
+        Ok(Diagnosed::from_output(output))
+    }
+
+    /// Constructs a `Diagnosed` from an output `T` with no [`Diagnostic`]s.
+    pub const fn from_output(output: T) -> Self {
+        Diagnosed(output, vec![])
+    }
+
     /// Converts from `Diagnosed` into its output `T`, discarding any [`Diagnostic`]s.
     pub fn into_output(self) -> T {
         self.0

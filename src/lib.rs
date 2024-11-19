@@ -4,13 +4,14 @@
 //!
 //! ## Diagnostic Results
 //!
-//! `DiagnosticResult` is a `Result` type that associates and aggregates `Diagnostic`s with an
-//! output type `T` in both success and failure cases (`Ok` and `Err` variants). The `Ok` variant
-//! contains a `Diagnosed<T>` with zero or more non-error `Diagnostic`s. The `Err` variant contains
-//! an `Error<'_>` with one or more `Diagnostic`s, at least one of which is considered an error.
+//! [`DiagnosticResult`] is a [`Result`] type that associates and aggregates [`Diagnostic`]s with
+//! an output type `T` in both success and failure cases (`Ok` and `Err` variants). The `Ok`
+//! variant contains a [`Diagnosed<T>`][`Diagnosed`] with zero or more non-error [`Diagnostic`]s.
+//! The `Err` variant contains an [`Error<'_>`][`Error`] with one or more [`Diagnostic`]s, at least
+//! one of which is considered an error.
 //!
-//! Together with extension methods, `DiagnosticResult` supports fluent and ergonomic use of
-//! **diagnostic functions**. A diagnostic function is one that returns a `DiagnosticResult`. For
+//! Together with extension methods, [`DiagnosticResult`] supports fluent and ergonomic use of
+//! **diagnostic functions**. A diagnostic function is one that returns a [`DiagnosticResult`]. For
 //! example, a library that parses a data structure or language from text can use diagnostic
 //! functions for parsing and analysis.
 //!
@@ -35,7 +36,7 @@
 //! }
 //! ```
 //!
-//! TBD.
+//! These diagnostic functions can be composed with extension methods.
 //!
 //! ```rust
 //! use tardar::prelude::*;
@@ -52,18 +53,42 @@
 //! #     tardar::Diagnosed::ok(Checked(tree))
 //! # }
 //! #
+//! /// Parses an expression into a checked AST.
 //! pub fn parse_and_check(expression: &str) -> DiagnosticResult<'_, Checked<Ast<'_>>> {
 //!     parse(expression).and_then_diagnose(check)
 //! }
 //! ```
 //!
-//! Here, `and_then_diagnose` is much like the standard `Result::and_then`, but
-//! accepts a diagnostic function and preserves any input `Diagnostic`s. Similarly,
-//! `map_output` resembles `Result::map`, but instead maps only the output `T` and
-//! forwards `Diagnostic`s.
+//! Here, [`and_then_diagnose`][`DiagnosticResultExt::and_then_diagnose`] is much like the standard
+//! [`Result::and_then`], but accepts a diagnostic function and so preserves any input
+//! [`Diagnostic`]s. If `parse` succeeds with some warning [`Diagnostic`]s but `check` fails with
+//! an error `Diagnostic`, then the output [`Error`] will contain both the warnings and error.
 //!
-//! `DiagnosticResult`s can be constructed from related types, such as `Result`
-//! types of a single error `Diagnostic` or iterators with `Diagnostic` items.
+//! [`DiagnosticResult`]s can be constructed from related types, such as singular [`Result`] types
+//! and iterators with [`Diagnostic`] items. These conversions can be used to compose other shapes
+//! of diagnostic functions. For example, an analysis function may return an iterator rather than a
+//! result.
+//!
+//! ```rust
+//! use tardar::BoxedDiagnostic;
+//!
+//! # struct Checked<T>(T);
+//! # struct Ast<'t>(&'t str);
+//! #
+//! /// Analyzes a checked AST and returns non-error diagnostics.
+//! pub fn analyze<'c, 't>(
+//!     tree: &'c Checked<Ast<'t>>,
+//! ) -> impl 'c + Iterator<Item = BoxedDiagnostic<'t>>
+//! where
+//!     't: 'c,
+//! {
+//! #     Option::<_>::None.into_iter() /*
+//!     ...
+//! # */
+//! }
+//! ```
+//!
+//! This function can be composed into `parse_and_check` from the excerpts above.
 //!
 //! ```rust
 //! use tardar::prelude::*;
@@ -80,17 +105,16 @@
 //! #     tardar::Diagnosed::ok(Checked(tree))
 //! # }
 //! #
-//! pub fn analyze<'c, 't>(
-//!     tree: &'c Checked<Ast<'t>>,
-//! ) -> impl 'c + Iterator<Item = BoxedDiagnostic<'t>>
-//! where
-//!     't: 'c,
-//! {
-//! #     Option::<_>::None.into_iter() /*
-//!     ...
-//! # */
-//! }
-//!
+//! # pub fn analyze<'c, 't>(
+//! #     tree: &'c Checked<Ast<'t>>,
+//! # ) -> impl 'c + Iterator<Item = BoxedDiagnostic<'t>>
+//! # where
+//! #     't: 'c,
+//! # {
+//! #     Option::<_>::None.into_iter()
+//! # }
+//! #
+//! /// Parses an expression into a checked AST with analysis.
 //! pub fn parse_and_check(expression: &str) -> DiagnosticResult<'_, Checked<Ast<'_>>> {
 //!     parse(expression)
 //!         .and_then_diagnose(check)
@@ -101,19 +125,13 @@
 //!         })
 //! }
 //! ```
-// //! ```rust
-// //! fn parse(expression: &str) -> Result<Ast<'_>, ParseError> { ... }
-// //!
-// //! fn analyze(tree: &Ast) -> impl '_ + Iterator<Item = BoxedDiagnostic<'_>> { ... }
-// //!
-// //! pub fn parse_and_analyze(expression: &str) -> DiagnosticResult<'_, Ast<'_>> {
-// //!     parse(expression)
-// //!         .into_error_diagnostic()
-// //!         .and_then_diagnose(|tree| analyze(&tree).into_non_error_diagnostic());
-// //! }
-// //! ```
+//!
+//! Here, [`map_output`][`DiagnosticResultExt`] resembles [`Result::map`], but instead maps only
+//! the output `T` and forwards [`Diagnostic`]s.
 //!
 //! ## Collation
+//!
+//! TBD.
 
 use miette::{Diagnostic, LabeledSpan, Severity, SourceCode};
 use mitsein::iter1::{Extend1, FromIterator1, IntoIterator1, Iterator1, IteratorExt as _};

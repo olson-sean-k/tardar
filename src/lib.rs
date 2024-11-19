@@ -1,19 +1,19 @@
 //! **Tardar** is a Rust library that provides extensions for the [`miette`] crate. These
-//! extensions primarily provide diagnostic `Result`s and ergonomic aggregation and collation of
+//! extensions primarily provide more ergonomic diagnostic `Result`s and collation of
 //! `Diagnostic`s.
 //!
 //! ## Diagnostic Results
 //!
 //! [`DiagnosticResult`] is a [`Result`] type that associates and aggregates [`Diagnostic`]s with
-//! an output type `T` in both success and failure cases (`Ok` and `Err` variants). The `Ok`
-//! variant contains a [`Diagnosed<T>`][`Diagnosed`] with zero or more non-error [`Diagnostic`]s.
-//! The `Err` variant contains an [`Error<'_>`][`Error`] with one or more [`Diagnostic`]s, at least
-//! one of which is considered an error.
+//! an output type `T` for both success and failure (`Ok` and `Err` variants). The `Ok` variant
+//! contains a [`Diagnosed<T>`][`Diagnosed`] with zero or more non-error [`Diagnostic`]s. The `Err`
+//! variant contains an [`Error<'_>`][`Error`] with one or more [`Diagnostic`]s, at least one of
+//! which is considered an error.
 //!
-//! Together with extension methods, [`DiagnosticResult`] supports fluent and ergonomic use of
-//! **diagnostic functions**. A diagnostic function is one that returns a [`DiagnosticResult`]. For
-//! example, a library that parses a data structure or language from text can use diagnostic
-//! functions for parsing and analysis.
+//! Together with extension methods, [`DiagnosticResult`] supports fluent and ergonomic composition
+//! of **diagnostic functions**. A diagnostic function is one that returns a [`DiagnosticResult`]
+//! or other container of [`Diagnostic`]s. For example, a library that parses a data structure or
+//! language from text can use diagnostic functions for parsing and analysis.
 //!
 //! ```rust
 //! use tardar::DiagnosticResult;
@@ -59,10 +59,11 @@
 //! }
 //! ```
 //!
-//! Here, [`and_then_diagnose`][`DiagnosticResultExt::and_then_diagnose`] is much like the standard
-//! [`Result::and_then`], but accepts a diagnostic function and so preserves any input
-//! [`Diagnostic`]s. If `parse` succeeds with some warning [`Diagnostic`]s but `check` fails with
-//! an error `Diagnostic`, then the output [`Error`] will contain both the warnings and error.
+//! The `parse_and_check` function forwards the output of `parse` to `check` with
+//! [`and_then_diagnose`][`DiagnosticResultExt::and_then_diagnose`]. This function is much like the
+//! standard [`Result::and_then`], but accepts a diagnostic function and so preserves any input
+//! [`Diagnostic`]s. If `parse` succeeds with some warnings but `check` fails with an error, then
+//! the output [`Error`] will contain both the warning **and** error [`Diagnostic`]s.
 //!
 //! [`DiagnosticResult`]s can be constructed from related types, such as singular [`Result`] types
 //! and iterators with [`Diagnostic`] items. These conversions can be used to compose other shapes
@@ -76,7 +77,7 @@
 //! # struct Ast<'t>(&'t str);
 //! #
 //! /// Analyzes a checked AST and returns non-error diagnostics.
-//! pub fn analyze<'c, 't>(
+//! fn analyze<'c, 't>(
 //!     tree: &'c Checked<Ast<'t>>,
 //! ) -> impl 'c + Iterator<Item = BoxedDiagnostic<'t>>
 //! where
@@ -88,7 +89,7 @@
 //! }
 //! ```
 //!
-//! This function can be composed into `parse_and_check` from the excerpts above.
+//! This diagnostic function can be composed into `parse_and_check` using a conversion.
 //!
 //! ```rust
 //! use tardar::prelude::*;
@@ -105,7 +106,7 @@
 //! #     tardar::Diagnosed::ok(Checked(tree))
 //! # }
 //! #
-//! # pub fn analyze<'c, 't>(
+//! # fn analyze<'c, 't>(
 //! #     tree: &'c Checked<Ast<'t>>,
 //! # ) -> impl 'c + Iterator<Item = BoxedDiagnostic<'t>>
 //! # where
@@ -126,8 +127,12 @@
 //! }
 //! ```
 //!
-//! Here, [`map_output`][`DiagnosticResultExt`] resembles [`Result::map`], but instead maps only
-//! the output `T` and forwards [`Diagnostic`]s.
+//! The output iterator of the `analyze` function is converted into a [`DiagnosticResult`] with
+//! [`into_non_error_diagnostic`][`IteratorExt::into_non_error_diagnostic]. The constructed result
+//! is `Ok` and contains the [`Diagnostic`]s from `analyze` in its [`Diagnosed<()>`][`Diagnosed`].
+//! Finally, the output is mapped with [`map_output`][`DiagnosticResultExt::map_output`]. This
+//! function resembles the standard [`Result::map`], but maps only the output `T` (rather than
+//! [`Diagnosed<T>`][`Diagnosed`]) and forwards [`Diagnostic`]s.
 //!
 //! ## Collation
 //!

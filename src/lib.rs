@@ -4,36 +4,54 @@
 //!
 //! ## Diagnostic Results
 //!
-//! `DiagnosticResult` is a `Result` type that aggregates `Diagnostic`s associated with an output
-//! type `T` in both the success and failure case (`Ok` and `Err` variants). The `Ok` variant
+//! `DiagnosticResult` is a `Result` type that associates and aggregates `Diagnostic`s with an
+//! output type `T` in both success and failure cases (`Ok` and `Err` variants). The `Ok` variant
 //! contains a `Diagnosed<T>` with zero or more non-error `Diagnostic`s. The `Err` variant contains
-//! an `Error<'_>` with one or more `Diagnostic`s where at least one `Diagnostic` is considered an
-//! error.
+//! an `Error<'_>` with one or more `Diagnostic`s, at least one of which is considered an error.
 //!
 //! Together with extension methods, `DiagnosticResult` supports fluent and ergonomic use of
-//! diagnostic functions (functions that return a `DiagnosticResult`). For example, a library that
-//! parses a data structure or language from text can aggregate `Diagnostic`s when combining
-//! functions.
+//! **diagnostic functions**. A diagnostic function is one that returns a `DiagnosticResult`. For
+//! example, a library that parses a data structure or language from text can use diagnostic
+//! functions for parsing and analysis.
 //!
 //! ```rust
-//! use tardar::prelude::*;
-//! use tardar::{BoxedDiagnostic, DiagnosticResult};
+//! use tardar::DiagnosticResult;
 //!
 //! # struct Checked<T>(T);
 //! # struct Ast<'t>(&'t str);
 //! #
+//! /// Parses an expression into an abstract syntax tree (AST).
 //! fn parse(expression: &str) -> DiagnosticResult<'_, Ast<'_>> {
 //! #     tardar::Diagnosed::ok(Ast(expression)) /*
 //!     ...
 //! # */
 //! }
 //!
+//! /// Checks an AST for token, syntax, and rule correctness.
 //! fn check<'t>(tree: Ast<'t>) -> DiagnosticResult<'t, Checked<Ast<'t>>> {
 //! #     tardar::Diagnosed::ok(Checked(tree)) /*
 //!     ...
 //! # */
 //! }
+//! ```
 //!
+//! TBD.
+//!
+//! ```rust
+//! use tardar::prelude::*;
+//! use tardar::DiagnosticResult;
+//!
+//! # struct Checked<T>(T);
+//! # struct Ast<'t>(&'t str);
+//! #
+//! # fn parse(expression: &str) -> DiagnosticResult<'_, Ast<'_>> {
+//! #     tardar::Diagnosed::ok(Ast(expression))
+//! # }
+//! #
+//! # fn check<'t>(tree: Ast<'t>) -> DiagnosticResult<'t, Checked<Ast<'t>>> {
+//! #     tardar::Diagnosed::ok(Checked(tree))
+//! # }
+//! #
 //! pub fn parse_and_check(expression: &str) -> DiagnosticResult<'_, Checked<Ast<'_>>> {
 //!     parse(expression).and_then_diagnose(check)
 //! }
@@ -46,6 +64,43 @@
 //!
 //! `DiagnosticResult`s can be constructed from related types, such as `Result`
 //! types of a single error `Diagnostic` or iterators with `Diagnostic` items.
+//!
+//! ```rust
+//! use tardar::prelude::*;
+//! use tardar::{BoxedDiagnostic, DiagnosticResult};
+//!
+//! # struct Checked<T>(T);
+//! # struct Ast<'t>(&'t str);
+//! #
+//! # fn parse(expression: &str) -> DiagnosticResult<'_, Ast<'_>> {
+//! #     tardar::Diagnosed::ok(Ast(expression))
+//! # }
+//! #
+//! # fn check<'t>(tree: Ast<'t>) -> DiagnosticResult<'t, Checked<Ast<'t>>> {
+//! #     tardar::Diagnosed::ok(Checked(tree))
+//! # }
+//! #
+//! pub fn analyze<'c, 't>(
+//!     tree: &'c Checked<Ast<'t>>,
+//! ) -> impl 'c + Iterator<Item = BoxedDiagnostic<'t>>
+//! where
+//!     't: 'c,
+//! {
+//! #     Option::<_>::None.into_iter() /*
+//!     ...
+//! # */
+//! }
+//!
+//! pub fn parse_and_check(expression: &str) -> DiagnosticResult<'_, Checked<Ast<'_>>> {
+//!     parse(expression)
+//!         .and_then_diagnose(check)
+//!         .and_then_diagnose(|tree| {
+//!             analyze(&tree)
+//!                 .into_non_error_diagnostic()
+//!                 .map_output(|_| tree)
+//!         })
+//! }
+//! ```
 // //! ```rust
 // //! fn parse(expression: &str) -> Result<Ast<'_>, ParseError> { ... }
 // //!

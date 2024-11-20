@@ -8,7 +8,13 @@ description = "Extensions for diagnostic error handling with `miette`."
 repository = "https://github.com/olson-sean-k/tardar"
 readme = "README.md"
 license = "MIT"
-keywords = ["diagnostics"]
+keywords = [
+    "diagnostics",
+    "error",
+    "miette",
+    "result",
+]
+categories = ["rust-patterns"]
 
 [dependencies]
 

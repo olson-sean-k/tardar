@@ -142,8 +142,7 @@
 //! that relates arbitrary [non-empty vectors][`Vec1`] and [slices][`Slice1`] of [`Diagnostic`]s.
 //!
 //! ```rust
-//! use mitsein::vec1::Vec1;
-//! use tardar::{BoxedDiagnostic, Collation, Diagnosed, DiagnosticResult};
+//! use tardar::{BoxedDiagnostic, Diagnosed, DiagnosticResult, OwnedCollation};
 //!
 //! # struct Client;
 //! # struct Bssid;
@@ -153,7 +152,7 @@
 //! pub fn scan(
 //!     client: &Client,
 //!     bssid: Bssid,
-//! ) -> Result<ActiveScan, Collation<Vec1<BoxedDiagnostic<'_>>>> {
+//! ) -> Result<ActiveScan, OwnedCollation<'_>> {
 //!     let result: DiagnosticResult<ActiveScan> = {
 //! #         Diagnosed::ok(ActiveScan) /*
 //!         ...
@@ -508,9 +507,6 @@ pub trait DiagnosticResultExt<'d, T> {
     /// [`Diagnosed`] in the `Ok` variant, discarding any diagnostics.
     fn ok_output(self) -> Option<T>;
 
-    /// Gets the [`Diagnostic`]s associated with the [`DiagnosticResult`].
-    fn diagnostics(&self) -> &[BoxedDiagnostic<'d>];
-
     /// Maps `DiagnosticResult<'d, T>` into `DiagnosticResult<'d, U>` by applying a function over
     /// the output `T` of the `Ok` variant.
     ///
@@ -529,6 +525,9 @@ pub trait DiagnosticResultExt<'d, T> {
     where
         F: FnOnce(T) -> DiagnosticResult<'d, U>;
 
+    /// Gets the [`Diagnostic`]s associated with the [`DiagnosticResult`].
+    fn diagnostics(&self) -> &[BoxedDiagnostic<'d>];
+
     /// Returns `true` if the `DiagnosticResult` has one or more associated [`Diagnostic`]s.
     fn has_diagnostics(&self) -> bool;
 }
@@ -538,13 +537,6 @@ impl<'d, T> DiagnosticResultExt<'d, T> for DiagnosticResult<'d, T> {
         match self {
             Ok(Diagnosed(output, _)) => Some(output),
             _ => None,
-        }
-    }
-
-    fn diagnostics(&self) -> &[BoxedDiagnostic<'d>] {
-        match self {
-            Ok(ref diagnosed) => diagnosed.diagnostics(),
-            Err(ref error) => error.diagnostics(),
         }
     }
 
@@ -565,6 +557,13 @@ impl<'d, T> DiagnosticResultExt<'d, T> for DiagnosticResult<'d, T> {
         match self {
             Ok(diagnosed) => diagnosed.and_then_diagnose(f),
             Err(diagnostics) => Err(diagnostics),
+        }
+    }
+
+    fn diagnostics(&self) -> &[BoxedDiagnostic<'d>] {
+        match self {
+            Ok(ref diagnosed) => diagnosed.diagnostics(),
+            Err(ref error) => error.diagnostics(),
         }
     }
 
@@ -633,7 +632,7 @@ impl<'d, T> Diagnosed<'d, T> {
         }
     }
 
-    pub fn collate(self) -> (T, Option<Collation<Vec1<BoxedDiagnostic<'d>>>>) {
+    pub fn collate(self) -> (T, Option<OwnedCollation<'d>>) {
         let Diagnosed(output, diagnostics) = self;
         (
             output,
@@ -685,7 +684,7 @@ impl<'d> Error<'d> {
         self.0
     }
 
-    pub fn collate(self) -> Collation<Vec1<BoxedDiagnostic<'d>>> {
+    pub fn collate(self) -> OwnedCollation<'d> {
         Collation::from(self)
     }
 
@@ -720,6 +719,12 @@ impl IntoIterator1 for Error<'_> {
         self.0.into_iter1()
     }
 }
+
+/// An owned [`Collation`].
+pub type OwnedCollation<'d> = Collation<Vec1<BoxedDiagnostic<'d>>>;
+
+/// A borrowed [`Collation`].
+pub type BorrowedCollation<'c, 'd> = Collation<&'c Slice1<BoxedDiagnostic<'d>>>;
 
 /// A collated [`Diagnostic`] of one or more related [`Diagnostic`]s.
 ///

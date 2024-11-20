@@ -1,5 +1,5 @@
 //! **Tardar** is a library that provides extensions for the [`miette`] crate. [Diagnostic
-//! `Result`][`DiagnosticResult`]s are the primary extension, which aggregate [`Diagnostic`]s in
+//! `Result`][`DiagnosticResult`]s are the primary extension, which accumulate [`Diagnostic`]s in
 //! both the `Ok` and `Err` variants.
 
 use miette::{Diagnostic, LabeledSpan, Severity, SourceCode};
@@ -447,8 +447,8 @@ impl<'d, T> Diagnosed<'d, T> {
         Diagnosed(f(output), diagnostics)
     }
 
-    /// Calls the given diagnostic function with the output `T` and aggregates [`Diagnostic`]s into
-    /// a [`DiagnosticResult`].
+    /// Calls the given diagnostic function with the output `T` and accumulates [`Diagnostic`]s
+    /// into a [`DiagnosticResult`].
     pub fn and_then_diagnose<U, F>(self, f: F) -> DiagnosticResult<'d, U>
     where
         F: FnOnce(T) -> DiagnosticResult<'d, U>,
@@ -500,8 +500,8 @@ impl<'d, T> Diagnosed<'d, T> {
 ///
 /// # Relation to `Collation`
 ///
-/// Both `Error` and [`Collation`] aggregate one or more [`Diagnostic`]s, but these types are
-/// distinct. `Error` is intended for continued aggregation of one or more **error**
+/// Both `Error` and [`Collation`] accumulate one or more [`Diagnostic`]s, but these types are
+/// distinct. `Error` is intended for continued accumulation of one or more **error**
 /// [`Diagnostic`]s via [`DiagnosticResult`]. `Error` is **not** itself a [`Diagnostic`], but
 /// exposes a collection of [`Diagnostic`]s from diagnostic functions. An `Error` [can be
 /// converted][`Error::collate`] into a [`Collation`] but not the other way around.
@@ -562,7 +562,7 @@ impl IntoIterator1 for Error<'_> {
 ///
 /// # Relation to `Error`
 ///
-/// Both `Collation` and [`Error`] aggregate one or more [`Diagnostic`]s, but these types are
+/// Both `Collation` and [`Error`] accumulate one or more [`Diagnostic`]s, but these types are
 /// distinct. `Collation` is itself a [`Diagnostic`] and is intended for relating a collection of
 /// otherwise disjoint [`Diagnostic`]s via [`Diagnostic::related`]. This relationship cannot be
 /// modified (only nested).

@@ -140,6 +140,15 @@ pub trait IteratorExt: Iterator {
     fn into_non_error_diagnostic<'d>(self) -> DiagnosticResult<'d, ()>
     where
         Self: Iterator<Item = BoxedDiagnostic<'d>> + Sized;
+
+    /// Converts from a type that implements `Iterator<Item = BoxedDiagnostic<'d>>` into
+    /// `DiagnosticResult<'d, ()>` by [`Severity`].
+    ///
+    /// If any [`Diagnostic`] item has an [error `Severity`][`Severity::Error`], then the items are
+    /// interpreted as errors. Otherwise, the items are interpreted as non-errors.
+    fn into_diagnostic_by_severity<'d>(self) -> DiagnosticResult<'d, ()>
+    where
+        Self: Iterator<Item = BoxedDiagnostic<'d>> + Sized;
 }
 
 impl<I> IteratorExt for I
@@ -151,6 +160,29 @@ where
         Self: Iterator<Item = BoxedDiagnostic<'d>> + Sized,
     {
         Ok(Diagnosed((), self.collect()))
+    }
+
+    fn into_diagnostic_by_severity<'d>(self) -> DiagnosticResult<'d, ()>
+    where
+        Self: Iterator<Item = BoxedDiagnostic<'d>> + Sized,
+    {
+        let diagnostics: Vec<_> = self.collect();
+        match Vec1::try_from(diagnostics) {
+            Ok(diagnostics) => {
+                if diagnostics
+                    .iter()
+                    .map(AsRef::as_ref)
+                    .flat_map(Diagnostic::severity)
+                    .any(|severity| matches!(severity, Severity::Error))
+                {
+                    Err(Error(diagnostics))
+                }
+                else {
+                    Ok(Diagnosed((), diagnostics.into()))
+                }
+            }
+            _ => Diagnosed::ok(()),
+        }
     }
 }
 

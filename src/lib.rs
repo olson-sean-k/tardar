@@ -6,14 +6,14 @@
 //!
 //! [`DiagnosticResult`] is a [`Result`] type that accumulates and associates [`Diagnostic`]s with
 //! an output type `T` for both success and failure (`Ok` and `Err` variants). The `Ok` variant
-//! contains a [`Diagnosed<T>`][`Diagnosed`] with zero or more non-error [`Diagnostic`]s. The `Err`
-//! variant contains an [`Error<'_>`][`Error`] with one or more [`Diagnostic`]s, at least one of
-//! which is considered an error.
+//! contains a [`Diagnosed`] with a `T` and **zero or more** non-error [`Diagnostic`]s. The `Err`
+//! variant contains an [`Error`] with **one or more** [`Diagnostic`]s, at least one of which is
+//! considered an error.
 //!
 //! Together with extension methods, [`DiagnosticResult`] supports fluent and ergonomic composition
 //! of **diagnostic functions**. Here, a diagnostic function is one that returns a
 //! [`DiagnosticResult`] or other container of [`Diagnostic`]s. For example, a library that parses
-//! a data structure or language from text can use diagnostic functions for parsing and analysis.
+//! a data structure or language from text may use diagnostic functions for parsing and analysis.
 //!
 //! ```rust
 //! use tardar::DiagnosticResult;
@@ -77,12 +77,9 @@
 //! # struct Ast<'x>(&'x str);
 //! #
 //! /// Analyzes a checked AST and returns non-error diagnostics.
-//! fn analyze<'t, 'x>(
-//!     tree: &'t Checked<Ast<'x>>,
-//! ) -> impl 't + Iterator<Item = BoxedDiagnostic>
-//! where
-//!     'x: 't,
-//! {
+//! fn analyze<'x>(
+//!     tree: &Checked<Ast<'x>>,
+//! ) -> impl Iterator<Item = BoxedDiagnostic> {
 //! #     Option::<_>::None.into_iter() /*
 //!     ...
 //! # */
@@ -139,7 +136,8 @@
 //! [`miette`] primarily groups [`Diagnostic`]s via [`Diagnostic::related`]. However, it can be
 //! inflexible or cumbersome to provide such an implementation and [`Diagnostic`]s are commonly and
 //! more easily organized into collections or iterators. [`Collation`] is a [`Diagnostic`] type
-//! that relates arbitrary [non-empty vectors][`Vec1`] and [slices][`Slice1`] of [`Diagnostic`]s.
+//! that relates arbitrary [**non-empty** vectors][`Vec1`] and [slices][`Slice1`] of
+//! [`Diagnostic`]s.
 //!
 //! ```rust
 //! use tardar::{Diagnosed, DiagnosticResult, OwnedCollation};
@@ -190,14 +188,14 @@ pub mod prelude {
 type Related<'d> = Flatten<option::IntoIter<Box<dyn Iterator<Item = &'d dyn Diagnostic> + 'd>>>;
 type HeadAndRelated<'d> = Chain<option::IntoIter<&'d dyn Diagnostic>, Related<'d>>;
 
-/// Extension methods for [`Diagnostic`]s.
+/// Extension methods for [`Diagnostic`] types.
 pub trait DiagnosticExt: Diagnostic {
     /// Gets a [non-empty iterator][`Iterator1`] over the [`Diagnostic`]'s tree of related
     /// [`Diagnostic`]s.
     ///
     /// [`Diagnostic`]s have zero or more related `Diagnostic`s. The returned iterator successively
-    /// calls [`Diagnostic::related`] and walks the tree to yield all related `Diagnostic`s. The
-    /// iterator also yields `self`.
+    /// calls [`Diagnostic::related`] and walks the tree to yield all related `Diagnostic`s. **The
+    /// iterator also yields `self`.**
     fn tree(&self) -> Iterator1<Tree<'_>>;
 }
 
@@ -220,7 +218,7 @@ where
     }
 }
 
-/// An [`Iterator`] over a [`Diagnostic`]'s tree of related [`Diagnostic`]s.
+/// An [`Iterator`] over a tree of related [`Diagnostic`]'s.
 ///
 /// See [`DiagnosticExt::tree`].
 pub struct Tree<'d> {
@@ -260,7 +258,7 @@ impl<'d> Iterator for Tree<'d> {
     }
 }
 
-/// Extension methods for [`Error`][`error::Error`]s.
+/// Extension methods for [`Error`][`error::Error`] types.
 pub trait ErrorExt: error::Error {
     /// Gets an iterator over the sources of the `Error`.
     ///
@@ -298,49 +296,53 @@ impl<'e> Iterator for Sources<'e> {
     }
 }
 
-/// Extension methods for [`Iterator`]s.
+/// Extension methods for [`Iterator`] types.
 pub trait IteratorExt: Iterator {
-    /// Converts from a type that implements `Iterator<Item = BoxedDiagnostic>` into
-    /// `DiagnosticResult<()>`.
+    /// Converts from an [`Iterator`] type of [`AsDiagnosticObject`] items into a non-error
+    /// `DiagnosticResult<(), Self::Item>`.
     ///
     /// The [`Diagnostic`] items of the iterator are interpreted as non-errors. Note that the
     /// [`Severity`] is not examined and so the [`Diagnostic`]s may have error-level severities
     /// despite being interpreted as non-errors.
-    fn into_non_error_diagnostic(self) -> DiagnosticResult<()>
+    fn into_non_error_diagnostic(self) -> DiagnosticResult<(), Self::Item>
     where
-        Self: Iterator<Item = BoxedDiagnostic> + Sized;
+        Self: Sized,
+        Self::Item: AsDiagnosticObject;
 
-    /// Converts from a type that implements `Iterator<Item = BoxedDiagnostic>` into
-    /// `DiagnosticResult<()>` by [`Severity`].
+    /// Converts from an [`Iterator`] type of [`AsDiagnosticObject`] items into
+    /// `DiagnosticResult<(), Self::Item>` by [`Severity`].
     ///
     /// If any [`Diagnostic`] item has an [error `Severity`][`Severity::Error`], then the items are
     /// interpreted as errors. Otherwise, the items are interpreted as non-errors.
-    fn into_diagnostic_by_severity(self) -> DiagnosticResult<()>
+    fn into_diagnostic_by_severity(self) -> DiagnosticResult<(), Self::Item>
     where
-        Self: Iterator<Item = BoxedDiagnostic> + Sized;
+        Self: Sized,
+        Self::Item: AsDiagnosticObject;
 }
 
 impl<I> IteratorExt for I
 where
     I: Iterator,
 {
-    fn into_non_error_diagnostic(self) -> DiagnosticResult<()>
+    fn into_non_error_diagnostic(self) -> DiagnosticResult<(), Self::Item>
     where
-        Self: Iterator<Item = BoxedDiagnostic> + Sized,
+        Self: Sized,
+        Self::Item: AsDiagnosticObject,
     {
         Ok(Diagnosed((), self.collect()))
     }
 
-    fn into_diagnostic_by_severity(self) -> DiagnosticResult<()>
+    fn into_diagnostic_by_severity(self) -> DiagnosticResult<(), Self::Item>
     where
-        Self: Iterator<Item = BoxedDiagnostic> + Sized,
+        Self: Sized,
+        Self::Item: AsDiagnosticObject,
     {
         let diagnostics: Vec<_> = self.collect();
         match Vec1::try_from(diagnostics) {
             Ok(diagnostics) => {
                 if diagnostics
                     .iter()
-                    .map(AsRef::as_ref)
+                    .map(AsDiagnosticObject::as_diagnostic_object)
                     .flat_map(Diagnostic::severity)
                     .any(|severity| matches!(severity, Severity::Error))
                 {
@@ -357,7 +359,8 @@ where
 
 /// Extension methods for [`Iterator1`].
 pub trait Iterator1Ext<I>: Sized {
-    /// Converts from an [`Iterator1`] of `BoxedDiagnostic` into `DiagnosticResult<()>`.
+    /// Converts from an [`Iterator1`] of [`AsDiagnosticObject`] items into
+    /// `DiagnosticResult<(), I::Item>`.
     ///
     /// The [`Diagnostic`] items of the iterator are interpreted as errors. Note that the
     /// [`Severity`] is not examined and so the [`Diagnostic`]s may have non-error severities
@@ -365,40 +368,42 @@ pub trait Iterator1Ext<I>: Sized {
     ///
     /// To interpret the items as non-errors, first convert the [`Iterator1`] into an iterator and
     /// then use [`into_non_error_diagnostic`][`IteratorExt::into_non_error_diagnostic`].
-    fn into_error_diagnostic(self) -> DiagnosticResult<()>
+    fn into_error_diagnostic(self) -> DiagnosticResult<(), I::Item>
     where
-        I: Iterator<Item = BoxedDiagnostic> + Sized;
+        I: Iterator + Sized,
+        I::Item: AsDiagnosticObject;
 }
 
 impl<I> Iterator1Ext<I> for Iterator1<I> {
-    fn into_error_diagnostic(self) -> DiagnosticResult<()>
+    fn into_error_diagnostic(self) -> DiagnosticResult<(), I::Item>
     where
-        I: Iterator<Item = BoxedDiagnostic> + Sized,
+        I: Iterator + Sized,
+        I::Item: AsDiagnosticObject,
     {
         Err(Error(self.collect1()))
     }
 }
 
-/// Extension methods for [`Result`]s.
+/// Extension methods for [`Result`].
 pub trait ResultExt<T, E> {
-    /// Converts from `Result<T, E>` into `DiagnosticResult<T>`.
+    /// Converts from `Result<T, E>` into `DiagnosticResult<T, E>`.
     ///
-    /// The error type `E` must be a [`Diagnostic`] and is interpreted as an error. Note that the
-    /// [`Severity`] is not examined and so the [`Diagnostic`] may have a non-error severity
-    /// despite being interpreted as an error.
-    fn into_error_diagnostic(self) -> DiagnosticResult<T>
+    /// The error type `E` must be convertible to a [`Diagnostic`] trait object and is interpreted
+    /// as an error. Note that the [`Severity`] is not examined and so the [`Diagnostic`] may have
+    /// a non-error severity despite being interpreted as an error.
+    fn into_error_diagnostic(self) -> DiagnosticResult<T, E>
     where
-        E: 'static + Diagnostic;
+        E: AsDiagnosticObject;
 }
 
 impl<T, E> ResultExt<T, E> for Result<T, E> {
-    fn into_error_diagnostic(self) -> DiagnosticResult<T>
+    fn into_error_diagnostic(self) -> DiagnosticResult<T, E>
     where
-        E: 'static + Diagnostic,
+        E: AsDiagnosticObject,
     {
         match self {
             Ok(output) => Ok(Diagnosed(output, vec![])),
-            Err(error) => Err(Error([Box::from_diagnostic(error)].into())),
+            Err(error) => Err(Error(Vec1::from_one(error))),
         }
     }
 }
@@ -469,7 +474,7 @@ where
 
 pub type BoxedDiagnostic = Box<dyn Diagnostic>;
 
-/// Extension methods for [`BoxedDiagnostic`]s.
+/// Extension methods for [`BoxedDiagnostic`].
 pub trait BoxedDiagnosticExt {
     /// Constructs a [`BoxedDiagnostic`] from a [`Diagnostic`].
     fn from_diagnostic<D>(diagnostic: D) -> Self
@@ -494,25 +499,25 @@ impl AsDiagnosticObject for BoxedDiagnostic {
 
 /// `Result` that includes [`Diagnostic`]s on both success and failure.
 ///
-/// On success, the `Ok` variant contains a [`Diagnosed`] with zero or more diagnostics and an
-/// output `T`. On failure, the `Err` variant contains an [`Error`] with one or more diagnostics,
-/// where at least one of the diagnostics has been interpreted as an error.
-pub type DiagnosticResult<T> = Result<Diagnosed<T>, Error>;
+/// On success, the `Ok` variant contains a [`Diagnosed`] with **zero or more** diagnostics and an
+/// output `T`. On failure, the `Err` variant contains an [`Error`] with **one or more**
+/// diagnostics, where at least one of the diagnostics has been interpreted as an error.
+pub type DiagnosticResult<T, D = BoxedDiagnostic> = Result<Diagnosed<T, D>, Error<D>>;
 
-/// Extension methods for [`DiagnosticResult`]s.
-pub trait DiagnosticResultExt<T> {
-    /// Converts from `DiagnosticResult<T>` into `Option<T>`.
+/// Extension methods for [`DiagnosticResult`].
+pub trait DiagnosticResultExt<T, D> {
+    /// Converts from `DiagnosticResult<T, D>` into `Option<T>`.
     ///
     /// This function is similar to [`Result::ok`], but gets only the output `T` from the
-    /// [`Diagnosed`] in the `Ok` variant, discarding any diagnostics.
+    /// [`Diagnosed`] in the `Ok` variant, **discarding any [`Diagnostic`]s**.
     fn ok_output(self) -> Option<T>;
 
-    /// Maps `DiagnosticResult<T>` into `DiagnosticResult<U>` by applying a function over the
+    /// Maps `DiagnosticResult<T, D>` into `DiagnosticResult<U, D>` by applying a function over the
     /// output `T` of the `Ok` variant.
     ///
     /// This function is similar to [`Result::map`], but maps only the non-diagnostic output `T`
     /// from the `Ok` variant in [`DiagnosticResult`], ignoring diagnostics.
-    fn map_output<U, F>(self, f: F) -> DiagnosticResult<U>
+    fn map_output<U, F>(self, f: F) -> DiagnosticResult<U, D>
     where
         F: FnOnce(T) -> U;
 
@@ -521,18 +526,24 @@ pub trait DiagnosticResultExt<T> {
     ///
     /// This function is similar to [`Result::and_then`], but additionally forwards and collects
     /// diagnostics.
-    fn and_then_diagnose<U, F>(self, f: F) -> DiagnosticResult<U>
+    fn and_then_diagnose<U, F>(self, f: F) -> DiagnosticResult<U, D>
     where
-        F: FnOnce(T) -> DiagnosticResult<U>;
+        F: FnOnce(T) -> DiagnosticResult<U, D>;
 
-    /// Gets the [`Diagnostic`]s associated with the [`DiagnosticResult`].
-    fn diagnostics(&self) -> &[BoxedDiagnostic];
+    /// Gets an iterator over the associated [`Diagnostic`]s as trait objects.
+    fn diagnostics(&self) -> impl '_ + Iterator<Item = &'_ dyn Diagnostic>;
+
+    /// Gets a slice over the associated [`Diagnostic`]s.
+    fn as_diagnostic_slice(&self) -> &[D];
 
     /// Returns `true` if the `DiagnosticResult` has one or more associated [`Diagnostic`]s.
     fn has_diagnostics(&self) -> bool;
 }
 
-impl<T> DiagnosticResultExt<T> for DiagnosticResult<T> {
+impl<T, D> DiagnosticResultExt<T, D> for DiagnosticResult<T, D>
+where
+    D: AsDiagnosticObject,
+{
     fn ok_output(self) -> Option<T> {
         match self {
             Ok(Diagnosed(output, _)) => Some(output),
@@ -540,7 +551,7 @@ impl<T> DiagnosticResultExt<T> for DiagnosticResult<T> {
         }
     }
 
-    fn map_output<U, F>(self, f: F) -> DiagnosticResult<U>
+    fn map_output<U, F>(self, f: F) -> DiagnosticResult<U, D>
     where
         F: FnOnce(T) -> U,
     {
@@ -550,9 +561,9 @@ impl<T> DiagnosticResultExt<T> for DiagnosticResult<T> {
         }
     }
 
-    fn and_then_diagnose<U, F>(self, f: F) -> DiagnosticResult<U>
+    fn and_then_diagnose<U, F>(self, f: F) -> DiagnosticResult<U, D>
     where
-        F: FnOnce(T) -> DiagnosticResult<U>,
+        F: FnOnce(T) -> DiagnosticResult<U, D>,
     {
         match self {
             Ok(diagnosed) => diagnosed.and_then_diagnose(f),
@@ -560,10 +571,16 @@ impl<T> DiagnosticResultExt<T> for DiagnosticResult<T> {
         }
     }
 
-    fn diagnostics(&self) -> &[BoxedDiagnostic] {
+    fn diagnostics(&self) -> impl '_ + Iterator<Item = &'_ dyn Diagnostic> {
+        self.as_diagnostic_slice()
+            .iter()
+            .map(AsDiagnosticObject::as_diagnostic_object)
+    }
+
+    fn as_diagnostic_slice(&self) -> &[D] {
         match self {
-            Ok(ref diagnosed) => diagnosed.diagnostics(),
-            Err(ref error) => error.diagnostics(),
+            Ok(ref diagnosed) => diagnosed.as_diagnostic_slice(),
+            Err(ref error) => error.as_diagnostic_slice1(),
         }
     }
 
@@ -578,17 +595,20 @@ impl<T> DiagnosticResultExt<T> for DiagnosticResult<T> {
 /// A diagnosed `T`.
 ///
 /// `Diagnosed` pairs an output `T` with zero or more non-error [`Diagnostic`]s. In the strictest
-/// sense, here non-error merely means that no associated [`Diagnostic`]s prevented the
+/// sense, non-error merely means here that no associated [`Diagnostic`]s prevented the
 /// construction of the output `T`. The [`Severity`] of the associated [`Diagnostic`]s is
 /// arbitrary.
 ///
 /// See [`DiagnosticResult`].
 #[derive(Debug)]
-pub struct Diagnosed<T>(pub T, pub Vec<BoxedDiagnostic>);
+pub struct Diagnosed<T, D = BoxedDiagnostic>(pub T, pub Vec<D>);
 
-impl<T> Diagnosed<T> {
+impl<T, D> Diagnosed<T, D>
+where
+    D: AsDiagnosticObject,
+{
     /// Constructs a [`DiagnosticResult`] from an output `T` with no [`Diagnostic`]s.
-    pub const fn ok(output: T) -> DiagnosticResult<T> {
+    pub const fn ok(output: T) -> DiagnosticResult<T, D> {
         Ok(Diagnosed::from_output(output))
     }
 
@@ -603,12 +623,12 @@ impl<T> Diagnosed<T> {
     }
 
     /// Converts from `Diagnosed` into its associated [`Diagnostic`]s, discarding the output `T`.
-    pub fn into_diagnostics(self) -> Vec<BoxedDiagnostic> {
+    pub fn into_diagnostics(self) -> Vec<D> {
         self.1
     }
 
-    /// Maps `Diagnosed<T>` into `Diagnosed<U>` by applying a function over the output `T`.
-    pub fn map_output<U, F>(self, f: F) -> Diagnosed<U>
+    /// Maps `Diagnosed<T, D>` into `Diagnosed<U, D>` by applying a function over the output `T`.
+    pub fn map_output<U, F>(self, f: F) -> Diagnosed<U, D>
     where
         F: FnOnce(T) -> U,
     {
@@ -618,9 +638,9 @@ impl<T> Diagnosed<T> {
 
     /// Calls the given diagnostic function with the output `T` and accumulates [`Diagnostic`]s
     /// into a [`DiagnosticResult`].
-    pub fn and_then_diagnose<U, F>(self, f: F) -> DiagnosticResult<U>
+    pub fn and_then_diagnose<U, F>(self, f: F) -> DiagnosticResult<U, D>
     where
-        F: FnOnce(T) -> DiagnosticResult<U>,
+        F: FnOnce(T) -> DiagnosticResult<U, D>,
     {
         let Diagnosed(output, mut diagnostics) = self;
         match f(output) {
@@ -632,7 +652,9 @@ impl<T> Diagnosed<T> {
         }
     }
 
-    pub fn collate(self) -> (T, Option<OwnedCollation>) {
+    /// Converts the `Diagnosed` into the output `T` and a [`Collation`] of any associated
+    /// [`Diagnostic`]s.
+    pub fn collate(self) -> (T, Option<OwnedCollation<D>>) {
         let Diagnosed(output, diagnostics) = self;
         (
             output,
@@ -645,8 +667,13 @@ impl<T> Diagnosed<T> {
         &self.0
     }
 
-    /// Gets the [`Diagnostic`]s associated with the output `T`.
-    pub fn diagnostics(&self) -> &[BoxedDiagnostic] {
+    /// Gets an iterator over the associated [`Diagnostic`]s as trait objects.
+    pub fn diagnostics(&self) -> impl '_ + Iterator<Item = &'_ dyn Diagnostic> {
+        self.1.iter().map(AsDiagnosticObject::as_diagnostic_object)
+    }
+
+    /// Gets a slice over the associated [`Diagnostic`]s.
+    pub fn as_diagnostic_slice(&self) -> &[D] {
         self.1.as_slice()
     }
 
@@ -674,57 +701,83 @@ impl<T> Diagnosed<T> {
 /// [`Diagnostic`]s via [`DiagnosticResult`]. `Error` is **not** itself a [`Diagnostic`], but
 /// exposes a collection of [`Diagnostic`]s from diagnostic functions. An `Error` [can be
 /// converted][`Error::collate`] into a [`Collation`] but not the other way around.
-#[derive(Debug)]
 #[repr(transparent)]
-pub struct Error(pub Vec1<BoxedDiagnostic>);
+pub struct Error<D = BoxedDiagnostic>(pub Vec1<D>);
 
-impl Error {
-    /// Converts from `Error` into its associated [`Diagnostic`]s.
-    pub fn into_diagnostics(self) -> Vec1<BoxedDiagnostic> {
+impl<D> Error<D>
+where
+    D: AsDiagnosticObject,
+{
+    /// Converts from `Error` into its [`Diagnostic`]s.
+    pub fn into_diagnostics(self) -> Vec1<D> {
         self.0
     }
 
-    pub fn collate(self) -> OwnedCollation {
+    /// Converts the `Error` into a [`Collation`] of its [`Diagnostic`]s.
+    pub fn collate(self) -> OwnedCollation<D> {
         Collation::from(self)
     }
 
-    /// Gets the associated [`Diagnostic`]s of the `Error`.
-    pub fn diagnostics(&self) -> &Slice1<BoxedDiagnostic> {
+    /// Gets a non-empty iterator over the [`Diagnostic`]s as trait objects.
+    pub fn diagnostics(&self) -> Iterator1<impl '_ + Iterator<Item = &'_ dyn Diagnostic>> {
+        self.0.iter1().map(AsDiagnosticObject::as_diagnostic_object)
+    }
+
+    /// Gets a non-empty slice over the [`Diagnostic`]s.
+    pub fn as_diagnostic_slice1(&self) -> &Slice1<D> {
         self.0.as_slice1()
     }
 }
 
-impl Display for Error {
+impl<D> Debug for Error<D>
+where
+    D: AsDiagnosticObject,
+{
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        for diagnostic in self.diagnostics().iter() {
+        formatter.debug_tuple("Error").field(&"..").finish()
+    }
+}
+
+impl<D> Display for Error<D>
+where
+    D: AsDiagnosticObject,
+{
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        for diagnostic in self.diagnostics() {
             writeln!(formatter, "{}", diagnostic)?;
         }
         Ok(())
     }
 }
 
-impl error::Error for Error {}
+impl<D> error::Error for Error<D> where D: AsDiagnosticObject {}
 
-impl IntoIterator for Error {
-    type IntoIter = <Vec1<BoxedDiagnostic> as IntoIterator>::IntoIter;
-    type Item = BoxedDiagnostic;
+impl<D> IntoIterator for Error<D>
+where
+    D: AsDiagnosticObject,
+{
+    type IntoIter = <Vec1<D> as IntoIterator>::IntoIter;
+    type Item = D;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
 
-impl IntoIterator1 for Error {
+impl<D> IntoIterator1 for Error<D>
+where
+    D: AsDiagnosticObject,
+{
     fn into_iter1(self) -> Iterator1<Self::IntoIter> {
         self.0.into_iter1()
     }
 }
 
 /// An owned [`Collation`].
-pub type OwnedCollation = Collation<Vec1<BoxedDiagnostic>>;
+pub type OwnedCollation<D = BoxedDiagnostic> = Collation<Vec1<D>>;
 
 /// A borrowed [`Collation`].
-pub type BorrowedCollation<'c> = Collation<&'c Slice1<BoxedDiagnostic>>;
+pub type BorrowedCollation<'c, D = BoxedDiagnostic> = Collation<&'c Slice1<D>>;
 
 /// A collated [`Diagnostic`] of one or more related [`Diagnostic`]s.
 ///
@@ -852,8 +905,11 @@ where
     }
 }
 
-impl From<Error> for Collation<Vec1<BoxedDiagnostic>> {
-    fn from(error: Error) -> Self {
+impl<D> From<Error<D>> for Collation<Vec1<D>>
+where
+    D: AsDiagnosticObject,
+{
+    fn from(error: Error<D>) -> Self {
         Collation::from(error.into_diagnostics())
     }
 }
@@ -899,10 +955,13 @@ where
     }
 }
 
-impl<T> TryFrom<Diagnosed<T>> for Collation<Vec1<BoxedDiagnostic>> {
-    type Error = Diagnosed<T>;
+impl<T, D> TryFrom<Diagnosed<T, D>> for Collation<Vec1<D>>
+where
+    D: AsDiagnosticObject,
+{
+    type Error = Diagnosed<T, D>;
 
-    fn try_from(diagnosed: Diagnosed<T>) -> Result<Self, Self::Error> {
+    fn try_from(diagnosed: Diagnosed<T, D>) -> Result<Self, Self::Error> {
         let Diagnosed(output, diagnostics) = diagnosed;
         Vec1::try_from(diagnostics)
             .map(Collation::from)

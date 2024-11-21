@@ -65,10 +65,9 @@
 //! [`Diagnostic`]s. **If `parse` succeeds with some warnings but `check` fails with an error, then
 //! the output [`Error`] will contain both the warning and error [`Diagnostic`]s.**
 //!
-//! [`DiagnosticResult`]s can be constructed from related types, such as singular [`Result`] types
-//! and iterators with [`Diagnostic`] items. These conversions can be used to compose other shapes
-//! of diagnostic functions. For example, an analysis function may return an iterator rather than a
-//! result.
+//! Other shapes of diagnostic functions can also be composed. For example, an analysis function
+//! may accept a shared reference and return an iterator rather than a result, since it cannot
+//! conceptually fail.
 //!
 //! ```rust
 //! use tardar::BoxedDiagnostic;
@@ -77,16 +76,14 @@
 //! # struct Ast<'x>(&'x str);
 //! #
 //! /// Analyzes a checked AST and returns non-error diagnostics.
-//! fn analyze<'x>(
-//!     tree: &Checked<Ast<'x>>,
-//! ) -> impl Iterator<Item = BoxedDiagnostic> {
+//! fn analyze<'x>(tree: &Checked<Ast<'x>>) -> impl Iterator<Item = BoxedDiagnostic> {
 //! #     Option::<_>::None.into_iter() /*
 //!     ...
 //! # */
 //! }
 //! ```
 //!
-//! This diagnostic function can be composed into `parse_and_check` using a conversion.
+//! This diagnostic function can too be composed into `parse_and_check` using extension methods.
 //!
 //! ```rust
 //! use tardar::prelude::*;
@@ -103,12 +100,7 @@
 //! #     tardar::Diagnosed::ok(Checked(tree))
 //! # }
 //! #
-//! # fn analyze<'t, 'x>(
-//! #     tree: &'t Checked<Ast<'x>>,
-//! # ) -> impl 't + Iterator<Item = BoxedDiagnostic>
-//! # where
-//! #     'x: 't,
-//! # {
+//! # fn analyze<'x>(tree: &Checked<Ast<'x>>) -> impl Iterator<Item = BoxedDiagnostic> {
 //! #     Option::<_>::None.into_iter()
 //! # }
 //! #
@@ -116,20 +108,19 @@
 //! pub fn parse_and_check(expression: &str) -> DiagnosticResult<Checked<Ast<'_>>> {
 //!     parse(expression)
 //!         .and_then_diagnose(check)
-//!         .and_then_diagnose(|tree| {
-//!             analyze(&tree)
-//!                 .into_non_error_diagnostic()
-//!                 .map_output(|_| tree)
-//!         })
+//!         .diagnose_non_errors(analyze)
 //! }
 //! ```
 //!
-//! The output iterator of the `analyze` function is converted into a [`DiagnosticResult`] with
-//! [`into_non_error_diagnostic`][`IteratorExt::into_non_error_diagnostic]. The constructed result
-//! is `Ok` and contains the [`Diagnostic`]s from `analyze` in its [`Diagnosed<()>`][`Diagnosed`].
-//! Finally, the output is mapped with [`map_output`][`DiagnosticResultExt::map_output`]. This
-//! function resembles the standard [`Result::map`], but maps only the output `T` (rather than
-//! [`Diagnosed<T>`][`Diagnosed`]) and forwards [`Diagnostic`]s.
+//! The output of `check` is forwarded to `analyze` with
+//! [`diagnose_non_errors`][`DiagnosticResult::diagnose_non_errors`]. This function is more bespoke
+//! and accepts a diagnostic function that itself accepts the output `T` by shared reference. Any
+//! [`Diagnostic`]s returned by the accepted function are interpreted as non-errors and are
+//! accumulated into the [`Diagnosed`].
+//!
+//! [`DiagnosticResult`]s can be constructed from related types, such as singular [`Result`] types
+//! and iterators with [`Diagnostic`] items. When extension functions like `and_then_diagnose` are
+//! not immediately compatible, it is often possible to perform conversions in a closure.
 //!
 //! ## Collation
 //!
@@ -521,6 +512,17 @@ pub trait DiagnosticResultExt<T, D> {
     where
         F: FnOnce(T) -> U;
 
+    /// Calls the given non-error diagnostic function if the `DiagnosticResult` is `Ok` and
+    /// otherwise returns the `Err` variant of the `DiagnosticResult`.
+    ///
+    /// Unlike [`and_then_diagnose`], the given function accepts the output `T` by shared reference
+    /// and returns zero or more non-error [`Diagnostic`]s and so cannot itself invoke an error.
+    /// These [`Diagnostic`]s are accumulated into the [`Diagnosed`].
+    fn diagnose_non_errors<I, F>(self, f: F) -> Self
+    where
+        I: IntoIterator<Item = D>,
+        F: FnOnce(&T) -> I;
+
     /// Calls the given diagnostic function if the `DiagnosticResult` is `Ok` and otherwise returns
     /// the `Err` variant of the `DiagnosticResult`.
     ///
@@ -557,6 +559,17 @@ where
     {
         match self {
             Ok(diagnosed) => Ok(diagnosed.map_output(f)),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn diagnose_non_errors<I, F>(self, f: F) -> Self
+    where
+        I: IntoIterator<Item = D>,
+        F: FnOnce(&T) -> I,
+    {
+        match self {
+            Ok(diagnosed) => Ok(diagnosed.diagnose_non_errors(f)),
             Err(error) => Err(error),
         }
     }
@@ -634,6 +647,18 @@ where
     {
         let Diagnosed(output, diagnostics) = self;
         Diagnosed(f(output), diagnostics)
+    }
+
+    /// Calls the given non-error diagnostic function with a shared reference to the output `T` and
+    /// accumulates any returned [`Diagnostic`]s.
+    pub fn diagnose_non_errors<I, F>(self, f: F) -> Self
+    where
+        I: IntoIterator<Item = D>,
+        F: FnOnce(&T) -> I,
+    {
+        let Diagnosed(output, mut diagnostics) = self;
+        diagnostics.extend(f(&output));
+        Diagnosed(output, diagnostics)
     }
 
     /// Calls the given diagnostic function with the output `T` and accumulates [`Diagnostic`]s

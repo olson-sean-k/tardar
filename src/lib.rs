@@ -161,13 +161,17 @@
 //! design: neither [`Diagnosed`] nor [`Error`] implement [`Diagnostic`].
 
 use miette::{Diagnostic, LabeledSpan, Severity, SourceCode};
+use mitsein::borrow1::CowSlice1;
+use mitsein::boxed1::BoxedSlice1;
 use mitsein::iter1::{Extend1, FromIterator1, IntoIterator1, Iterator1, IteratorExt as _};
 use mitsein::slice1::Slice1;
+use mitsein::sync1::ArcSlice1;
 use mitsein::vec1::Vec1;
 use std::error;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::iter::{Chain, Flatten};
 use std::option;
+use std::sync::Arc;
 
 pub mod prelude {
     pub use crate::{
@@ -197,7 +201,7 @@ where
     fn tree(&self) -> Iterator1<Tree<'_>> {
         // SAFETY: This `Tree` iterator must yield one or more items. `self` is pushed onto the
         //         stack and is popped and yielded in the `Iterator` implementation for `Tree`, so
-        //         this `Tree` iterator always yields `self`.
+        //         this `Tree` iterator always yields `self` and therefore one or more items.
         unsafe {
             Iterator1::from_iter_unchecked(Tree {
                 stack: vec![Some(self as &dyn Diagnostic)
@@ -414,9 +418,24 @@ where
     }
 }
 
+impl<D> AsDiagnosticObject for &'_ mut D
+where
+    D: AsDiagnosticObject + ?Sized,
+{
+    fn as_diagnostic_object(&self) -> &dyn Diagnostic {
+        D::as_diagnostic_object(*self)
+    }
+}
+
 impl AsDiagnosticObject for dyn Diagnostic {
     fn as_diagnostic_object(&self) -> &dyn Diagnostic {
         self
+    }
+}
+
+impl AsDiagnosticObject for Arc<dyn Diagnostic> {
+    fn as_diagnostic_object(&self) -> &dyn Diagnostic {
+        self.as_ref()
     }
 }
 
@@ -438,6 +457,39 @@ where
 
     fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
         T::as_diagnostic_slice1(*self)
+    }
+}
+
+impl<D> AsDiagnosticSlice1 for ArcSlice1<D>
+where
+    D: AsDiagnosticObject,
+{
+    type Diagnostic = D;
+
+    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
+        self.as_ref()
+    }
+}
+
+impl<D> AsDiagnosticSlice1 for BoxedSlice1<D>
+where
+    D: AsDiagnosticObject,
+{
+    type Diagnostic = D;
+
+    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
+        self.as_ref()
+    }
+}
+
+impl<D> AsDiagnosticSlice1 for CowSlice1<'_, D>
+where
+    D: AsDiagnosticObject + Clone,
+{
+    type Diagnostic = D;
+
+    fn as_diagnostic_slice1(&self) -> &Slice1<Self::Diagnostic> {
+        self.as_ref()
     }
 }
 
@@ -804,6 +856,9 @@ pub type OwnedCollation<D = BoxedDiagnostic> = Collation<Vec1<D>>;
 /// A borrowed [`Collation`].
 pub type BorrowedCollation<'c, D = BoxedDiagnostic> = Collation<&'c Slice1<D>>;
 
+/// A copy-on-write [`Collation`].
+pub type CowCollation<'c, D = BoxedDiagnostic> = Collation<CowSlice1<'c, D>>;
+
 /// A collated [`Diagnostic`] of one or more related [`Diagnostic`]s.
 ///
 /// `Collation` relates an arbitrary non-empty vector or slice of [`Diagnostic`] trait objects via
@@ -846,6 +901,15 @@ where
             .iter()
             .map(AsDiagnosticObject::as_diagnostic_object)
             .flat_map(Diagnostic::severity)
+    }
+}
+
+impl<D> Collation<CowSlice1<'_, D>>
+where
+    D: AsDiagnosticObject + Clone,
+{
+    pub fn into_owned(self) -> Collation<CowSlice1<'static, D>> {
+        Collation(self.0.into_owned().into())
     }
 }
 
@@ -927,6 +991,24 @@ where
 {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         self.first().source()
+    }
+}
+
+impl<'c, D> From<Collation<CowSlice1<'c, D>>> for Collation<Vec1<D>>
+where
+    D: AsDiagnosticObject + Clone,
+{
+    fn from(collation: Collation<CowSlice1<'c, D>>) -> Self {
+        Collation::from(collation.0.into_owned())
+    }
+}
+
+impl<'c, D> From<Collation<&'c Slice1<D>>> for Collation<Vec1<D>>
+where
+    D: AsDiagnosticObject + Clone,
+{
+    fn from(collation: Collation<&'c Slice1<D>>) -> Self {
+        Collation::from(collation.0.to_vec1())
     }
 }
 
